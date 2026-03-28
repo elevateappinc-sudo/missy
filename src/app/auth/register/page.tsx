@@ -1,12 +1,16 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Bot, Eye, EyeOff, Mail, Lock, User, Store, ArrowRight } from "lucide-react";
+import { signUpWithEmail, signInWithGoogle } from "@/lib/auth";
 
 export default function RegisterPage() {
+  const router = useRouter();
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState("");
   const [form, setForm] = useState({
     name: "",
     restaurantName: "",
@@ -21,12 +25,19 @@ export default function RegisterPage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setIsLoading(true);
-    // TODO: Supabase auth signup + create restaurant
-    setTimeout(() => setIsLoading(false), 1500);
+    setError("");
+    const { error } = await signUpWithEmail(form.email, form.password, form.name, form.restaurantName);
+    if (error) {
+      setError(error.message);
+      setIsLoading(false);
+    } else {
+      router.push("/dashboard");
+    }
   }
 
   async function handleGoogleSignup() {
-    // TODO: Supabase Google OAuth
+    const { error } = await signInWithGoogle();
+    if (error) setError("Error al registrarse con Google");
   }
 
   return (
@@ -88,6 +99,12 @@ export default function RegisterPage() {
           <p className="text-text-secondary text-[15px] mb-10">
             Empieza a atender con IA en tu restaurante
           </p>
+
+          {error && (
+            <div className="mb-6 px-4 py-3 rounded-[10px] bg-error/10 border border-error/20 text-error text-[13px]">
+              {error}
+            </div>
+          )}
 
           <button
             onClick={handleGoogleSignup}

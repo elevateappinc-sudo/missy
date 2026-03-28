@@ -1,24 +1,35 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Bot, Eye, EyeOff, Mail, Lock, ArrowRight } from "lucide-react";
+import { signInWithEmail, signInWithGoogle } from "@/lib/auth";
 
 export default function LoginPage() {
+  const router = useRouter();
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setIsLoading(true);
-    // TODO: Supabase auth
-    setTimeout(() => setIsLoading(false), 1500);
+    setError("");
+    const { error } = await signInWithEmail(email, password);
+    if (error) {
+      setError("Correo o contraseña incorrectos");
+      setIsLoading(false);
+    } else {
+      router.push("/dashboard");
+    }
   }
 
   async function handleGoogleLogin() {
-    // TODO: Supabase Google OAuth
+    const { error } = await signInWithGoogle();
+    if (error) setError("Error al iniciar con Google");
   }
 
   return (
@@ -80,6 +91,12 @@ export default function LoginPage() {
           <p className="text-text-secondary text-[15px] mb-10">
             Inicia sesión para administrar tu restaurante
           </p>
+
+          {error && (
+            <div className="mb-6 px-4 py-3 rounded-[10px] bg-error/10 border border-error/20 text-error text-[13px]">
+              {error}
+            </div>
+          )}
 
           <button
             onClick={handleGoogleLogin}

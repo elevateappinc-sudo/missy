@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
   Bot,
   LayoutDashboard,
@@ -12,6 +12,9 @@ import {
   Settings,
   LogOut,
 } from "lucide-react";
+import { useSession } from "@/hooks/use-session";
+import { useRestaurant } from "@/hooks/use-restaurant";
+import { signOut } from "@/lib/auth";
 
 const navItems = [
   { href: "/dashboard", label: "Inicio", icon: LayoutDashboard },
@@ -24,6 +27,14 @@ const navItems = [
 
 export function Sidebar() {
   const pathname = usePathname();
+  const router = useRouter();
+  const { user } = useSession();
+  const { restaurant } = useRestaurant(user?.id);
+
+  async function handleSignOut() {
+    await signOut();
+    router.push("/auth/login");
+  }
 
   return (
     <aside className="fixed left-0 top-0 bottom-0 w-[240px] bg-bg-dark flex flex-col z-40">
@@ -40,7 +51,7 @@ export function Sidebar() {
         <div className="px-3 py-2 rounded-[10px] bg-white/[0.04] border border-white/[0.06]">
           <p className="text-[12px] text-white/30 font-medium">Restaurante</p>
           <p className="text-[14px] text-white/70 font-medium truncate">
-            Mi Restaurante
+            {restaurant?.name ?? "Cargando..."}
           </p>
         </div>
       </div>
@@ -71,7 +82,10 @@ export function Sidebar() {
 
       {/* Bottom */}
       <div className="px-3 pb-6">
-        <button className="flex items-center gap-3 px-3 py-2.5 rounded-[10px] text-[14px] font-medium text-white/30 hover:text-white/60 hover:bg-white/[0.04] transition-all duration-200 w-full">
+        <button
+          onClick={handleSignOut}
+          className="flex items-center gap-3 px-3 py-2.5 rounded-[10px] text-[14px] font-medium text-white/30 hover:text-white/60 hover:bg-white/[0.04] transition-all duration-200 w-full"
+        >
           <LogOut className="w-[18px] h-[18px]" />
           Cerrar sesión
         </button>
