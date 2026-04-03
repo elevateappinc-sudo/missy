@@ -48,12 +48,22 @@ export interface MenuItem {
 }
 
 // --- Mesas ---
+export type TableShape = "round" | "square" | "rectangle";
+export type TableStatus = "empty" | "occupied" | "ordering" | "waiting" | "served";
+
 export interface Table {
   id: string;
   restaurant_id: string;
   name: string;
   qr_code: string;
   is_active: boolean;
+  position_x: number;
+  position_y: number;
+  width: number;
+  height: number;
+  shape: TableShape;
+  capacity: number;
+  status: TableStatus;
   created_at: string;
 }
 

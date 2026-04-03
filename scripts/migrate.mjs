@@ -239,7 +239,38 @@ DO $$ BEGIN
 END $$;
 
 -- Enable Realtime for orders
-ALTER PUBLICATION supabase_realtime ADD TABLE orders;
+DO $$ BEGIN
+  BEGIN
+    ALTER PUBLICATION supabase_realtime ADD TABLE orders;
+  EXCEPTION WHEN duplicate_object THEN NULL;
+  END;
+END $$;
+
+-- ============================================
+-- V2: Tables — position, shape, capacity, status
+-- ============================================
+ALTER TABLE tables ADD COLUMN IF NOT EXISTS position_x NUMERIC DEFAULT 100;
+ALTER TABLE tables ADD COLUMN IF NOT EXISTS position_y NUMERIC DEFAULT 100;
+ALTER TABLE tables ADD COLUMN IF NOT EXISTS width NUMERIC DEFAULT 100;
+ALTER TABLE tables ADD COLUMN IF NOT EXISTS height NUMERIC DEFAULT 100;
+ALTER TABLE tables ADD COLUMN IF NOT EXISTS shape TEXT DEFAULT 'square';
+ALTER TABLE tables ADD COLUMN IF NOT EXISTS capacity INT DEFAULT 4;
+ALTER TABLE tables ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'empty';
+
+-- Enable Realtime for tables
+DO $$ BEGIN
+  BEGIN
+    ALTER PUBLICATION supabase_realtime ADD TABLE tables;
+  EXCEPTION WHEN duplicate_object THEN NULL;
+  END;
+END $$;
+
+-- Public update policy for tables status (clients can update status when ordering)
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'public_update_tables') THEN
+    CREATE POLICY public_update_tables ON tables FOR UPDATE USING (true);
+  END IF;
+END $$;
 `;
 
 async function migrate() {
