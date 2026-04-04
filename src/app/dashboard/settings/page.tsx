@@ -90,7 +90,7 @@ export default function SettingsPage() {
   async function saveRestaurant() {
     if (!restaurant) return;
     setSaving(true);
-    await supabase.from("restaurants").update({
+    const { error } = await supabase.from("restaurants").update({
       name: restForm.name,
       description: restForm.description || null,
       country: restForm.country,
@@ -98,13 +98,18 @@ export default function SettingsPage() {
       primary_color: restForm.primary_color,
     }).eq("id", restaurant.id);
     setSaving(false);
-    showSaved();
+    if (error) {
+      console.error("Save restaurant error:", error);
+      alert(`Error al guardar: ${error.message}`);
+    } else {
+      showSaved();
+    }
   }
 
   async function saveAvatar() {
     if (!restaurant) return;
     setSaving(true);
-    await supabase.from("avatar_configs").upsert({
+    const { error } = await supabase.from("avatar_configs").upsert({
       restaurant_id: restaurant.id,
       name: avatarForm.name,
       style: avatarForm.style,
@@ -113,7 +118,12 @@ export default function SettingsPage() {
       voice_id: avatarForm.voice_id,
     }, { onConflict: "restaurant_id" });
     setSaving(false);
-    showSaved();
+    if (error) {
+      console.error("Save avatar error:", error);
+      alert(`Error al guardar: ${error.message}`);
+    } else {
+      showSaved();
+    }
   }
 
   return (

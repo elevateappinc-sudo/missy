@@ -57,7 +57,7 @@ export default function TablesPage() {
     // Offset position so tables don't stack
     const posX = 100 + ((num - 1) % 5) * 140;
     const posY = 100 + Math.floor((num - 1) / 5) * 140;
-    await supabase.from("tables").insert({
+    const { error } = await supabase.from("tables").insert({
       name: `Mesa ${num}`,
       restaurant_id: restaurant.id,
       qr_code: qrCode,
@@ -69,6 +69,11 @@ export default function TablesPage() {
       capacity: 4,
       status: "empty",
     });
+    if (error) {
+      console.error("Error creating table:", error);
+      alert(`Error al crear mesa: ${error.message}`);
+      return;
+    }
     loadTables();
   }
 

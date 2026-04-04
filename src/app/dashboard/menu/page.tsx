@@ -87,21 +87,32 @@ export default function MenuPage() {
 
     // Ensure category exists
     let categoryId = form.category_id;
-    if (!categoryId && categories.length === 0) {
-      const { data } = await supabase.from("menu_categories").insert({ name: "General", restaurant_id: restaurant.id }).select("id").single();
-      if (data) categoryId = data.id;
+    if (!categoryId) {
+      // Create default category if none exist
+      const { data } = await supabase
+        .from("menu_categories")
+        .insert({ name: "General", restaurant_id: restaurant.id })
+        .select("id")
+        .single();
+      if (data) {
+        categoryId = data.id;
+      } else {
+        setSaving(false);
+        return;
+      }
     }
 
     if (editingItem) {
-      await supabase.from("menu_items").update({
+      const { error } = await supabase.from("menu_items").update({
         name: form.name,
         description: form.description || null,
         price: parseFloat(form.price),
         category_id: categoryId,
         is_available: form.is_available,
       }).eq("id", editingItem.id);
+      if (error) console.error("Update error:", error);
     } else {
-      await supabase.from("menu_items").insert({
+      const { error } = await supabase.from("menu_items").insert({
         name: form.name,
         description: form.description || null,
         price: parseFloat(form.price),
@@ -109,6 +120,7 @@ export default function MenuPage() {
         restaurant_id: restaurant.id,
         is_available: form.is_available,
       });
+      if (error) console.error("Insert error:", error);
     }
 
     setSaving(false);
