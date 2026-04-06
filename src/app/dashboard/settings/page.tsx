@@ -22,7 +22,6 @@ const personalities = [
 ] as const;
 
 export default function SettingsPage() {
-  const supabase = createClient();
   const { user } = useSession();
   const { restaurant } = useRestaurant(user?.id);
   const [tab, setTab] = useState<"restaurant" | "avatar">("restaurant");
@@ -62,6 +61,7 @@ export default function SettingsPage() {
   // Load avatar config
   const loadAvatar = useCallback(async () => {
     if (!restaurant) return;
+    const supabase = createClient();
     const { data } = await supabase
       .from("avatar_configs")
       .select("*")
@@ -76,7 +76,7 @@ export default function SettingsPage() {
         voice_id: data.voice_id ?? "female-co",
       });
     }
-  }, [restaurant, supabase]);
+  }, [restaurant]);
 
   useEffect(() => {
     loadAvatar();
@@ -90,17 +90,20 @@ export default function SettingsPage() {
   async function saveRestaurant() {
     if (!restaurant) return;
     setSaving(true);
-    const { error } = await supabase.from("restaurants").update({
+    const supabase = createClient();
+    const { data, error } = await supabase.from("restaurants").update({
       name: restForm.name,
       description: restForm.description || null,
       country: restForm.country,
       phone: restForm.phone || null,
       primary_color: restForm.primary_color,
-    }).eq("id", restaurant.id);
+    }).eq("id", restaurant.id).select();
     setSaving(false);
     if (error) {
       console.error("Save restaurant error:", error);
       alert(`Error al guardar: ${error.message}`);
+    } else if (!data || data.length === 0) {
+      alert("No se pudo guardar. Tu sesión puede haber expirado. Intenta cerrar sesión y volver a entrar.");
     } else {
       showSaved();
     }
@@ -109,18 +112,21 @@ export default function SettingsPage() {
   async function saveAvatar() {
     if (!restaurant) return;
     setSaving(true);
-    const { error } = await supabase.from("avatar_configs").upsert({
+    const supabase = createClient();
+    const { data, error } = await supabase.from("avatar_configs").upsert({
       restaurant_id: restaurant.id,
       name: avatarForm.name,
       style: avatarForm.style,
       personality: avatarForm.personality,
       greeting_message: avatarForm.greeting_message,
       voice_id: avatarForm.voice_id,
-    }, { onConflict: "restaurant_id" });
+    }, { onConflict: "restaurant_id" }).select();
     setSaving(false);
     if (error) {
       console.error("Save avatar error:", error);
       alert(`Error al guardar: ${error.message}`);
+    } else if (!data || data.length === 0) {
+      alert("No se pudo guardar. Tu sesión puede haber expirado. Intenta cerrar sesión y volver a entrar.");
     } else {
       showSaved();
     }
