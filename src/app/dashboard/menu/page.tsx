@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { DashboardHeader } from "@/components/layout/dashboard-header";
-import { Plus, Pencil, Trash2, Search, X, Save, ImagePlus, Eye } from "lucide-react";
+import { Plus, Pencil, Trash2, Search, X, Save, ImagePlus, Eye, Settings } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useSession } from "@/hooks/use-session";
 import { useRestaurant } from "@/hooks/use-restaurant";
@@ -227,53 +227,64 @@ export default function MenuPage() {
       <DashboardHeader title="Menú" subtitle="Gestiona las categorías y platos de tu restaurante" />
 
       {/* Toolbar */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">
-        <div className="flex items-center gap-2 flex-wrap">
-          {["Todos", ...categories.map((c) => c.name)].map((cat) => (
-            <button
-              key={cat}
-              onClick={() => setActiveCategory(cat)}
-              className={`px-4 py-1.5 rounded-full text-[13px] font-medium transition-all duration-200 ${
-                activeCategory === cat
-                  ? "bg-primary text-white"
-                  : "bg-white border border-border-light text-text-secondary hover:border-primary/30"
-              }`}
-            >
-              {cat}
-            </button>
-          ))}
-          <button
-            onClick={() => setShowCategoryModal(true)}
-            className="px-3 py-1.5 rounded-full text-[13px] font-medium bg-white border border-dashed border-border-light text-text-muted hover:border-primary/30 hover:text-primary transition-all"
-          >
-            + Categoría
-          </button>
-        </div>
-        <div className="flex items-center gap-3">
-          <div className="relative">
+      <div className="space-y-3 mb-6">
+        {/* Top row: search + actions */}
+        <div className="flex items-center justify-between gap-3">
+          <div className="relative flex-1 max-w-[280px]">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted" />
             <input
               type="text"
               placeholder="Buscar plato..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="pl-9 pr-4 py-2 rounded-[10px] border border-border-light bg-white text-[13px] text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary/50 w-[200px] transition-all duration-300"
+              className="w-full pl-9 pr-4 py-2 rounded-[10px] border border-border-light bg-white text-[13px] text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary/50 transition-all duration-300"
             />
           </div>
-          <a
-            href="/dashboard/menu/preview"
-            className="flex items-center gap-2 bg-white border border-border-light text-text-secondary px-4 py-2 rounded-full text-[13px] font-medium hover:border-primary/30 transition-all duration-300"
-          >
-            <Eye className="w-4 h-4" />
-            Ver menú
-          </a>
-          <button
-            onClick={openCreate}
-            className="flex items-center gap-2 bg-primary text-white px-4 py-2 rounded-full text-[13px] font-semibold hover:bg-primary-dark transition-all duration-300 hover:shadow-[0_4px_16px_rgba(168,85,247,0.25)]"
-          >
-            <Plus className="w-4 h-4" />
-            Agregar plato
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowCategoryModal(true)}
+              className="flex items-center gap-1.5 bg-white border border-border-light text-text-secondary px-3.5 py-2 rounded-[10px] text-[12px] font-medium hover:border-primary/30 transition-all"
+            >
+              <Settings className="w-3.5 h-3.5" />
+              Categorías
+            </button>
+            <a
+              href="/dashboard/menu/preview"
+              className="flex items-center gap-1.5 bg-white border border-border-light text-text-secondary px-3.5 py-2 rounded-[10px] text-[12px] font-medium hover:border-primary/30 transition-all"
+            >
+              <Eye className="w-3.5 h-3.5" />
+              Ver menú
+            </a>
+            <button
+              onClick={openCreate}
+              className="flex items-center gap-1.5 bg-primary text-white px-4 py-2 rounded-[10px] text-[12px] font-semibold hover:bg-primary-dark transition-all duration-300 hover:shadow-[0_4px_16px_rgba(168,85,247,0.25)]"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              Agregar plato
+            </button>
+          </div>
+        </div>
+
+        {/* Category chips — horizontal scroll */}
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-hide" style={{ scrollbarWidth: "none" }}>
+          {["Todos", ...categories.map((c) => c.name)].map((cat) => (
+            <button
+              key={cat}
+              onClick={() => setActiveCategory(cat)}
+              className={`px-3 py-1 rounded-full text-[12px] font-medium whitespace-nowrap transition-all duration-200 shrink-0 ${
+                activeCategory === cat
+                  ? "bg-primary text-white shadow-sm"
+                  : "bg-white border border-border-light text-text-secondary hover:border-primary/30"
+              }`}
+            >
+              {cat}
+              {cat !== "Todos" && (
+                <span className="ml-1 opacity-50">
+                  {items.filter((i) => i.category_name === cat).length}
+                </span>
+              )}
+            </button>
+          ))}
         </div>
       </div>
 
