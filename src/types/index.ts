@@ -64,6 +64,7 @@ export interface Table {
   shape: TableShape;
   capacity: number;
   status: TableStatus;
+  floor: string;
   created_at: string;
 }
 

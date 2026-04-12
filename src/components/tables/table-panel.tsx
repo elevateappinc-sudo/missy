@@ -1,11 +1,12 @@
 "use client";
 
-import { X, Trash2, Save } from "lucide-react";
+import { X, Trash2 } from "lucide-react";
 import type { Table, TableShape, TableStatus } from "@/types";
 import { statusColors } from "./table-node";
 
 interface TablePanelProps {
   table: Table;
+  floors: string[];
   onUpdate: (id: string, updates: Partial<Table>) => void;
   onDelete: (id: string) => void;
   onClose: () => void;
@@ -17,7 +18,7 @@ const shapes: { value: TableShape; label: string }[] = [
   { value: "rectangle", label: "Rectangular" },
 ];
 
-export function TablePanel({ table, onUpdate, onDelete, onClose }: TablePanelProps) {
+export function TablePanel({ table, floors, onUpdate, onDelete, onClose }: TablePanelProps) {
   return (
     <div className="absolute right-0 top-0 bottom-0 w-[300px] bg-white border-l border-border-light p-6 overflow-y-auto z-10 shadow-xl">
       <div className="flex items-center justify-between mb-6">
@@ -40,6 +41,20 @@ export function TablePanel({ table, onUpdate, onDelete, onClose }: TablePanelPro
             onChange={(e) => onUpdate(table.id, { name: e.target.value })}
             className="w-full px-3 py-2 rounded-[10px] border border-border-light bg-bg-warm/50 text-[14px] text-text-primary focus:outline-none focus:ring-2 focus:ring-primary/30 transition-all"
           />
+        </div>
+
+        {/* Floor */}
+        <div>
+          <label className="block text-[13px] font-medium text-text-primary mb-1.5">Piso / Zona</label>
+          <select
+            value={table.floor}
+            onChange={(e) => onUpdate(table.id, { floor: e.target.value })}
+            className="w-full px-3 py-2 rounded-[10px] border border-border-light bg-bg-warm/50 text-[14px] text-text-primary focus:outline-none focus:ring-2 focus:ring-primary/30 transition-all"
+          >
+            {floors.map((f) => (
+              <option key={f} value={f}>{f}</option>
+            ))}
+          </select>
         </div>
 
         {/* Capacity */}

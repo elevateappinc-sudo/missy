@@ -5,11 +5,13 @@ import { DashboardHeader } from "@/components/layout/dashboard-header";
 import { FloorPlanCanvas } from "@/components/tables/floor-plan-canvas";
 import { TablePanel } from "@/components/tables/table-panel";
 import { statusColors } from "@/components/tables/table-node";
-import { Plus, Maximize2 } from "lucide-react";
+import { Plus, Layers, X, Pencil, Trash2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useSession } from "@/hooks/use-session";
 import { useRestaurant } from "@/hooks/use-restaurant";
 import type { Table, TableStatus } from "@/types";
+
+const DEFAULT_FLOORS = ["Piso 1"];
 
 export default function TablesPage() {
   const supabase = createClient();
@@ -17,6 +19,12 @@ export default function TablesPage() {
   const { restaurant } = useRestaurant(user?.id);
   const [tables, setTables] = useState<Table[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [activeFloor, setActiveFloor] = useState("Piso 1");
+  const [floors, setFloors] = useState<string[]>(DEFAULT_FLOORS);
+  const [showFloorModal, setShowFloorModal] = useState(false);
+  const [newFloorName, setNewFloorName] = useState("");
+  const [editingFloor, setEditingFloor] = useState<string | null>(null);
+  const [editFloorName, setEditFloorName] = useState("");
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const loadTables = useCallback(async () => {
@@ -26,8 +34,21 @@ export default function TablesPage() {
       .select("*")
       .eq("restaurant_id", restaurant.id)
       .order("created_at");
-    setTables((data as Table[]) ?? []);
-  }, [restaurant, supabase]);
+    const loaded = ((data as Table[]) ?? []).map((t) => ({
+      ...t,
+      floor: t.floor || "Piso 1",
+    }));
+    setTables(loaded);
+
+    // Derive floors from existing tables
+    const uniqueFloors = Array.from(new Set(loaded.map((t) => t.floor)));
+    if (uniqueFloors.length > 0) {
+      setFloors(uniqueFloors.sort());
+      if (!uniqueFloors.includes(activeFloor)) {
+        setActiveFloor(uniqueFloors[0]);
+      }
+    }
+  }, [restaurant, supabase, activeFloor]);
 
   useEffect(() => {
     loadTables();
@@ -49,25 +70,27 @@ export default function TablesPage() {
     };
   }, [restaurant, supabase, loadTables]);
 
-  // Add new table
+  // Add new table to current floor
   async function addTable() {
     if (!restaurant) return;
+    const floorTables = tables.filter((t) => t.floor === activeFloor);
     const num = tables.length + 1;
+    const isBar = activeFloor.toLowerCase().includes("barra");
     const qrCode = `${restaurant.id}-mesa-${num}-${crypto.randomUUID().slice(0, 8)}`;
-    // Offset position so tables don't stack
-    const posX = 100 + ((num - 1) % 5) * 140;
-    const posY = 100 + Math.floor((num - 1) / 5) * 140;
+    const posX = 100 + ((floorTables.length) % 5) * 140;
+    const posY = 100 + Math.floor((floorTables.length) / 5) * 140;
     const { error } = await supabase.from("tables").insert({
-      name: `Mesa ${num}`,
+      name: isBar ? `Barra ${floorTables.length + 1}` : `Mesa ${num}`,
       restaurant_id: restaurant.id,
       qr_code: qrCode,
       position_x: posX,
       position_y: posY,
-      width: 100,
-      height: 100,
-      shape: "square",
-      capacity: 4,
+      width: isBar ? 140 : 100,
+      height: isBar ? 80 : 100,
+      shape: isBar ? "rectangle" : "square",
+      capacity: isBar ? 2 : 4,
       status: "empty",
+      floor: activeFloor,
     });
     if (error) {
       console.error("Error creating table:", error);
@@ -106,10 +129,49 @@ export default function TablesPage() {
     loadTables();
   }
 
-  const selectedTable = tables.find((t) => t.id === selectedId) ?? null;
+  // Floor management
+  function addFloor(name: string) {
+    if (!name.trim() || floors.includes(name.trim())) return;
+    const updated = [...floors, name.trim()].sort();
+    setFloors(updated);
+    setActiveFloor(name.trim());
+    setNewFloorName("");
+    setShowFloorModal(false);
+  }
 
-  // Status counts
-  const statusCounts = tables.reduce<Record<string, number>>((acc, t) => {
+  async function renameFloor(oldName: string, newName: string) {
+    if (!newName.trim() || newName.trim() === oldName) {
+      setEditingFloor(null);
+      return;
+    }
+    // Update all tables on this floor
+    const tablesToUpdate = tables.filter((t) => t.floor === oldName);
+    for (const t of tablesToUpdate) {
+      await supabase.from("tables").update({ floor: newName.trim() }).eq("id", t.id);
+    }
+    setFloors((prev) => prev.map((f) => (f === oldName ? newName.trim() : f)).sort());
+    if (activeFloor === oldName) setActiveFloor(newName.trim());
+    setEditingFloor(null);
+    loadTables();
+  }
+
+  async function deleteFloor(name: string) {
+    const floorTables = tables.filter((t) => t.floor === name);
+    if (floorTables.length > 0) {
+      alert("No puedes eliminar un piso que tiene mesas. Elimina o mueve las mesas primero.");
+      return;
+    }
+    setFloors((prev) => prev.filter((f) => f !== name));
+    if (activeFloor === name && floors.length > 1) {
+      setActiveFloor(floors.find((f) => f !== name) ?? "Piso 1");
+    }
+  }
+
+  const selectedTable = tables.find((t) => t.id === selectedId) ?? null;
+  const floorTables = tables.filter((t) => t.floor === activeFloor);
+
+  // Status counts for current floor
+  const statusCounts = floorTables.reduce<Record<string, number>>((acc, t) => {
     acc[t.status] = (acc[t.status] || 0) + 1;
     return acc;
   }, {});
@@ -117,6 +179,34 @@ export default function TablesPage() {
   return (
     <>
       <DashboardHeader title="Mesas" subtitle="Mapa interactivo del restaurante" />
+
+      {/* Floor tabs */}
+      <div className="flex items-center gap-2 mb-4">
+        <Layers className="w-4 h-4 text-text-muted" />
+        <div className="flex items-center gap-1.5 overflow-x-auto" style={{ scrollbarWidth: "none" }}>
+          {floors.map((floor) => (
+            <button
+              key={floor}
+              onClick={() => { setActiveFloor(floor); setSelectedId(null); }}
+              className={`px-3.5 py-1.5 rounded-full text-[12px] font-medium whitespace-nowrap transition-all shrink-0 ${
+                activeFloor === floor
+                  ? "bg-primary text-white shadow-sm"
+                  : "bg-white border border-border-light text-text-secondary hover:border-primary/30"
+              }`}
+            >
+              {floor}
+              <span className="ml-1 opacity-60">{tables.filter((t) => t.floor === floor).length}</span>
+            </button>
+          ))}
+        </div>
+        <button
+          onClick={() => setShowFloorModal(true)}
+          className="flex items-center gap-1 px-2.5 py-1.5 rounded-full text-[12px] font-medium bg-bg-warm text-text-secondary hover:bg-bg-warm/80 border border-border-light transition-all shrink-0"
+        >
+          <Plus className="w-3.5 h-3.5" />
+          Piso
+        </button>
+      </div>
 
       {/* Toolbar */}
       <div className="flex items-center justify-between mb-4">
@@ -140,15 +230,15 @@ export default function TablesPage() {
           className="flex items-center gap-2 bg-primary text-white px-4 py-2 rounded-full text-[13px] font-semibold hover:bg-primary-dark transition-all duration-300 hover:shadow-[0_4px_16px_rgba(168,85,247,0.25)]"
         >
           <Plus className="w-4 h-4" />
-          Agregar mesa
+          Agregar {activeFloor.toLowerCase().includes("barra") ? "puesto" : "mesa"}
         </button>
       </div>
 
       {/* Canvas + Panel */}
-      <div className="relative" style={{ height: "calc(100vh - 220px)" }}>
+      <div className="relative" style={{ height: "calc(100vh - 280px)" }}>
         <div className={`h-full ${selectedTable ? "mr-[300px]" : ""} transition-all duration-300`}>
           <FloorPlanCanvas
-            tables={tables}
+            tables={floorTables}
             selectedId={selectedId}
             onSelect={setSelectedId}
             onMove={handleMove}
@@ -158,12 +248,104 @@ export default function TablesPage() {
         {selectedTable && (
           <TablePanel
             table={selectedTable}
+            floors={floors}
             onUpdate={handleUpdate}
             onDelete={handleDelete}
             onClose={() => setSelectedId(null)}
           />
         )}
       </div>
+
+      {/* Floor Management Modal */}
+      {showFloorModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+          <div className="bg-white rounded-[16px] border border-border-light w-full max-w-md p-6 shadow-xl">
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-[17px] font-semibold text-text-primary">Gestionar pisos</h3>
+              <button onClick={() => setShowFloorModal(false)} className="text-text-muted hover:text-text-primary">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Current floors */}
+            <div className="mb-6">
+              <p className="text-[13px] font-medium text-text-primary mb-2">Pisos actuales</p>
+              <div className="space-y-2">
+                {floors.map((floor) => (
+                  <div key={floor} className="flex items-center justify-between px-3 py-2.5 rounded-[10px] bg-bg-warm">
+                    {editingFloor === floor ? (
+                      <input
+                        autoFocus
+                        value={editFloorName}
+                        onChange={(e) => setEditFloorName(e.target.value)}
+                        onBlur={() => renameFloor(floor, editFloorName)}
+                        onKeyDown={(e) => { if (e.key === "Enter") renameFloor(floor, editFloorName); }}
+                        className="flex-1 px-2 py-1 rounded-[6px] border border-primary/30 bg-white text-[14px] text-text-primary focus:outline-none"
+                      />
+                    ) : (
+                      <span className="text-[14px] text-text-primary">{floor}</span>
+                    )}
+                    <div className="flex items-center gap-1">
+                      <span className="text-[12px] text-text-muted mr-2">
+                        {tables.filter((t) => t.floor === floor).length} mesas
+                      </span>
+                      <button
+                        onClick={() => { setEditingFloor(floor); setEditFloorName(floor); }}
+                        className="w-7 h-7 rounded-[6px] flex items-center justify-center text-text-muted hover:text-primary hover:bg-primary/8 transition-all"
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={() => deleteFloor(floor)}
+                        className="w-7 h-7 rounded-[6px] flex items-center justify-center text-text-muted hover:text-error hover:bg-error/8 transition-all"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Quick add suggestions */}
+            <div className="mb-4">
+              <p className="text-[13px] font-medium text-text-primary mb-2">Agregar rápido</p>
+              <div className="flex flex-wrap gap-2">
+                {["Piso 2", "Piso 3", "Piso 4", "Terraza", "Barra", "VIP", "Exterior"].filter(
+                  (s) => !floors.includes(s)
+                ).map((suggestion) => (
+                  <button
+                    key={suggestion}
+                    onClick={() => addFloor(suggestion)}
+                    className="px-3 py-1.5 rounded-full text-[12px] font-medium bg-primary/8 text-primary border border-primary/15 hover:bg-primary/15 transition-all"
+                  >
+                    + {suggestion}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Custom floor */}
+            <form
+              onSubmit={(e) => { e.preventDefault(); addFloor(newFloorName); }}
+              className="flex gap-2"
+            >
+              <input
+                value={newFloorName}
+                onChange={(e) => setNewFloorName(e.target.value)}
+                placeholder="Nombre personalizado"
+                className="flex-1 px-4 py-2 rounded-[10px] border border-border-light bg-bg-warm/50 text-[14px] text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-primary/30 transition-all"
+              />
+              <button
+                type="submit"
+                className="px-4 py-2 rounded-full bg-primary text-white text-[13px] font-semibold hover:bg-primary-dark transition-all"
+              >
+                Agregar
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
     </>
   );
 }

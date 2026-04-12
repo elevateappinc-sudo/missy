@@ -271,6 +271,24 @@ DO $$ BEGIN
     CREATE POLICY public_update_tables ON tables FOR UPDATE USING (true);
   END IF;
 END $$;
+
+-- ============================================
+-- V3: Tables — floor support (pisos + barra)
+-- ============================================
+ALTER TABLE tables ADD COLUMN IF NOT EXISTS floor TEXT DEFAULT 'Piso 1';
+
+-- V4: Orders — make session_id optional (nullable)
+-- Already nullable in schema, but ensure orders work without session_id
+
+-- Public read policy for client_sessions
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'public_read_sessions') THEN
+    CREATE POLICY public_read_sessions ON client_sessions FOR SELECT USING (true);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'public_update_sessions') THEN
+    CREATE POLICY public_update_sessions ON client_sessions FOR UPDATE USING (true);
+  END IF;
+END $$;
 `;
 
 async function migrate() {

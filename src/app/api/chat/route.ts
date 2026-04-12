@@ -53,7 +53,10 @@ Instrucciones:
 - Sé conciso (máximo 2-3 oraciones por respuesta)
 - Si preguntan algo fuera del menú/restaurante, redirige amablemente
 - Los precios están en pesos colombianos (COP)
-- Usa el formato $XX.XXX para precios`;
+- Usa el formato $XX.XXX para precios
+- NUNCA digas que vas a asignar una mesa, el cliente ya está sentado en su mesa
+- NUNCA pidas al cliente que espere por una mesa o que le asignarás una
+- El cliente ya escaneó un QR en su mesa, así que ya está ubicado`;
 
   const response = await groq.chat.completions.create({
     model: "llama-3.3-70b-versatile",
