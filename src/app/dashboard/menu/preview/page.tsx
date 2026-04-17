@@ -13,6 +13,9 @@ import {
   Check,
   GripVertical,
   X as XIcon,
+  Upload,
+  Minus,
+  Plus,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useSession } from "@/hooks/use-session";
@@ -85,6 +88,8 @@ const STYLE_CONFIG: Record<MenuStyle, {
   titleFont?: string;
   titleClass?: string;
   categoryTitleClass?: string;
+  paperTexture?: boolean;
+  categoryBoxed?: boolean;
 }> = {
   elegant: {
     label: "Elegante",
@@ -204,53 +209,58 @@ const STYLE_CONFIG: Record<MenuStyle, {
   cafeteria: {
     label: "Cafetería",
     emoji: "☕",
-    bg: "bg-[#f0e8d4]",
-    text: "text-[#1e4fb8]",
-    accent: "text-[#1e4fb8]",
-    accentText: "text-[#1e4fb8]",
-    muted: "text-[#3a5a9a]",
-    border: "border-[#1e4fb8]/30",
-    specialBg: "bg-[#e4dcc0]",
-    specialBorder: "border-[#1e4fb8]/25",
-    cardBg: "bg-[#e8e0cc]",
+    bg: "bg-[#ece0c2]",
+    text: "text-[#163b9a]",
+    accent: "text-[#163b9a]",
+    accentText: "text-[#163b9a]",
+    muted: "text-[#2a4a8a]",
+    border: "border-[#163b9a]/30",
+    specialBg: "bg-[#e0d3b0]",
+    specialBorder: "border-[#163b9a]/30",
+    cardBg: "bg-[#e4d8b8]",
+    font: "'Impact', 'Arial Narrow', 'Arial Black', sans-serif",
     headerDecoration: "swirl",
-    titleClass: "text-[72px] font-black tracking-tight leading-none",
-    categoryTitleClass: "text-[28px] font-bold tracking-tight",
+    titleClass:
+      "text-[96px] font-black tracking-[-0.02em] leading-[0.9] uppercase",
+    categoryTitleClass: "text-[34px] font-black tracking-tight",
   },
   rustico: {
     label: "Rústico",
     emoji: "🏡",
-    bg: "bg-[#f3ead2]",
-    text: "text-[#3a2a1a]",
+    bg: "bg-[#efe2c0]",
+    text: "text-[#3a2818]",
     accent: "text-[#1d3a4a]",
     accentText: "text-white",
-    muted: "text-[#6a5440]",
-    border: "border-[#8a6a40]/30",
-    specialBg: "bg-[#ebdfc0]",
-    specialBorder: "border-[#1d3a4a]/25",
-    cardBg: "bg-[#efe4c4]",
+    muted: "text-[#705a40]",
+    border: "border-[#8b6a40]/40",
+    specialBg: "bg-[#e6d7ae]",
+    specialBorder: "border-[#1d3a4a]/30",
+    cardBg: "bg-[#ebdcb6]",
     font: "'Georgia', 'Times New Roman', serif",
     headerDecoration: "house",
     priceBadge: true,
-    titleClass: "text-[32px] font-semibold tracking-[0.15em] uppercase",
-    categoryTitleClass: "text-[15px] font-bold tracking-[0.25em] uppercase",
+    paperTexture: true,
+    titleClass: "text-[36px] font-bold tracking-[0.2em] uppercase",
+    categoryTitleClass: "text-[14px] font-bold tracking-[0.3em] uppercase",
   },
   bistro: {
     label: "Bistró",
     emoji: "🍽️",
-    bg: "bg-[#f5f1e4]",
-    text: "text-[#15243a]",
-    accent: "text-[#15243a]",
-    accentText: "text-[#15243a]",
+    bg: "bg-[#f5efdf]",
+    text: "text-[#0f1d33]",
+    accent: "text-[#0f1d33]",
+    accentText: "text-[#0f1d33]",
     muted: "text-[#4a5468]",
-    border: "border-[#15243a]/25",
-    specialBg: "bg-[#15243a]",
-    specialBorder: "border-[#15243a]",
-    cardBg: "bg-[#ebe4d0]",
+    border: "border-[#0f1d33]/30",
+    specialBg: "bg-[#0f1d33]",
+    specialBorder: "border-[#0f1d33]",
+    cardBg: "bg-[#ece5d0]",
     font: "'Georgia', serif",
     headerDecoration: "double-line",
-    titleClass: "text-[44px] font-bold tracking-[0.08em]",
-    categoryTitleClass: "text-[18px] font-bold tracking-[0.2em] uppercase",
+    categoryBoxed: true,
+    titleClass: "text-[52px] font-bold tracking-[0.1em] uppercase",
+    categoryTitleClass:
+      "inline-block px-6 py-2 bg-[#0f1d33] text-[#f5efdf] text-[14px] font-bold tracking-[0.3em] uppercase",
   },
 };
 
@@ -352,6 +362,66 @@ function HeaderDecoration({ type, accent }: { type?: string; accent: string }) {
   }
 }
 
+function getFoodEmoji(itemName: string, categoryName: string): string {
+  const text = `${itemName} ${categoryName}`.toLowerCase();
+  if (/cafe|café|capuc|expres|americano|latte|moka/.test(text)) return "☕";
+  if (/té|te |manzanilla|verde|jengibre/.test(text)) return "🍵";
+  if (/frapp|smoothie|tizana|soda|jugo|fresa|mora|mango|piña/.test(text)) return "🥤";
+  if (/pizza/.test(text)) return "🍕";
+  if (/burger|hamburg/.test(text)) return "🍔";
+  if (/ensalada|salad/.test(text)) return "🥗";
+  if (/pasta|spaghet|fettuc|ravio|lasa/.test(text)) return "🍝";
+  if (/dona|donut/.test(text)) return "🍩";
+  if (/galleta|cookie/.test(text)) return "🍪";
+  if (/pastel|torta|cake|rebanada/.test(text)) return "🍰";
+  if (/waffle|hotcake|panqueque/.test(text)) return "🧇";
+  if (/helado|nieve/.test(text)) return "🍨";
+  if (/sopa|crema|caldo|broth/.test(text)) return "🍲";
+  if (/pollo|chicken|pechuga/.test(text)) return "🍗";
+  if (/pescado|fish|salmon|atún|atun/.test(text)) return "🐟";
+  if (/camarón|camaron|shrimp|mariscos/.test(text)) return "🦐";
+  if (/carne|steak|asado|ribeye|res/.test(text)) return "🥩";
+  if (/panini|sandwich|sándwich|bagel|club/.test(text)) return "🥪";
+  if (/taco|burrito|quesadilla/.test(text)) return "🌮";
+  if (/papa|fries|frita/.test(text)) return "🍟";
+  if (/arroz|rice/.test(text)) return "🍚";
+  if (/huevo|egg|omelet/.test(text)) return "🍳";
+  if (/queso|cheese/.test(text)) return "🧀";
+  if (/aguacate|avocado/.test(text)) return "🥑";
+  if (/vino|wine|copa/.test(text)) return "🍷";
+  if (/cerveza|beer/.test(text)) return "🍺";
+  if (/cocktail|cóctel|coctel|margarita|mojito/.test(text)) return "🍹";
+  if (/postre|dessert/.test(text)) return "🍰";
+  if (/bebida/.test(text)) return "🥤";
+  return "🍽️";
+}
+
+function ItemImage({
+  item,
+  categoryName,
+  className,
+  emojiSize = "text-[64px]",
+}: {
+  item: { image_url: string | null; name: string };
+  categoryName: string;
+  className?: string;
+  emojiSize?: string;
+}) {
+  if (item.image_url) {
+    return <img src={item.image_url} alt={item.name} className={`${className ?? ""} object-cover`} />;
+  }
+  const emoji = getFoodEmoji(item.name, categoryName);
+  return (
+    <div
+      className={`${className ?? ""} flex items-center justify-center bg-gradient-to-br from-black/[0.04] to-black/[0.08]`}
+    >
+      <span className={`${emojiSize} opacity-60`} aria-hidden>
+        {emoji}
+      </span>
+    </div>
+  );
+}
+
 function Editable({
   value,
   onSave,
@@ -409,6 +479,9 @@ export default function MenuPreviewPage() {
   const [layout, setLayout] = useState<LayoutMode>("single");
   const [showImages, setShowImages] = useState(true);
   const [editMode, setEditMode] = useState(false);
+  const [fontScale, setFontScale] = useState(1);
+  const [uploadTarget, setUploadTarget] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const dragItem = useRef<{ categoryId: string; itemId: string } | null>(null);
   const dragCategory = useRef<string | null>(null);
 
@@ -500,6 +573,38 @@ export default function MenuPreviewPage() {
     if (!name) return;
     setCategories((prev) => prev.map((c) => (c.id === categoryId ? { ...c, name } : c)));
     await supabase.from("menu_categories").update({ name }).eq("id", categoryId);
+  }
+
+  function triggerImageUpload(itemId: string) {
+    setUploadTarget(itemId);
+    fileInputRef.current?.click();
+  }
+
+  async function handleFileSelected(file: File) {
+    if (!restaurant || !uploadTarget) return;
+    const itemId = uploadTarget;
+    const ext = file.name.split(".").pop() ?? "jpg";
+    const path = `${restaurant.id}/${crypto.randomUUID()}.${ext}`;
+    const { error } = await supabase.storage.from("menu-images").upload(path, file, {
+      cacheControl: "3600",
+      upsert: false,
+    });
+    if (error) {
+      console.error("Upload error:", error);
+      setUploadTarget(null);
+      return;
+    }
+    const {
+      data: { publicUrl },
+    } = supabase.storage.from("menu-images").getPublicUrl(path);
+    setCategories((prev) =>
+      prev.map((c) => ({
+        ...c,
+        items: c.items.map((i) => (i.id === itemId ? { ...i, image_url: publicUrl } : i)),
+      }))
+    );
+    await supabase.from("menu_items").update({ image_url: publicUrl }).eq("id", itemId);
+    setUploadTarget(null);
   }
 
   async function removeItemImage(itemId: string) {
@@ -618,6 +723,28 @@ export default function MenuPreviewPage() {
               {editMode ? <Check className="w-4 h-4" /> : <Pencil className="w-4 h-4" />}
               {editMode ? "Listo" : "Editar"}
             </button>
+            {/* Font size controls (edit mode only) */}
+            {editMode && (
+              <div className="flex items-center gap-0.5 bg-bg-warm rounded-[10px] p-1">
+                <button
+                  onClick={() => setFontScale((s) => Math.max(0.75, +(s - 0.1).toFixed(2)))}
+                  className="p-1.5 rounded-[8px] text-text-secondary hover:bg-white"
+                  title="Reducir tamaño"
+                >
+                  <Minus className="w-3.5 h-3.5" />
+                </button>
+                <span className="text-[11px] text-text-muted w-10 text-center tabular-nums">
+                  {Math.round(fontScale * 100)}%
+                </span>
+                <button
+                  onClick={() => setFontScale((s) => Math.min(1.5, +(s + 0.1).toFixed(2)))}
+                  className="p-1.5 rounded-[8px] text-text-secondary hover:bg-white"
+                  title="Aumentar tamaño"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
             <button
               onClick={handlePrint}
               className="flex items-center gap-2 bg-primary text-white px-4 py-2 rounded-full text-[13px] font-semibold hover:bg-primary-dark transition-all"
@@ -648,8 +775,33 @@ export default function MenuPreviewPage() {
         </div>
       </div>
 
+      {/* Hidden file input for image replace */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) handleFileSelected(file);
+          e.target.value = "";
+        }}
+      />
+
       {/* Menu preview */}
-      <div className={`min-h-screen ${cfg.bg} ${cfg.text}`} style={cfg.font ? { fontFamily: cfg.font } : {}}>
+      <div
+        className={`min-h-screen ${cfg.bg} ${cfg.text}`}
+        style={{
+          ...(cfg.font ? { fontFamily: cfg.font } : {}),
+          ...(fontScale !== 1 ? { zoom: fontScale } : {}),
+          ...(cfg.paperTexture
+            ? {
+                backgroundImage:
+                  "radial-gradient(circle at 20% 30%, rgba(139,106,64,0.06) 0px, transparent 40%), radial-gradient(circle at 80% 70%, rgba(139,106,64,0.05) 0px, transparent 45%), radial-gradient(circle at 50% 90%, rgba(29,58,74,0.04) 0px, transparent 35%)",
+              }
+            : {}),
+        }}
+      >
         <div className={`mx-auto px-8 py-16 print:py-8 ${layout === "three-col" ? "max-w-5xl" : layout === "two-col" ? "max-w-4xl" : "max-w-3xl"}`}>
           {/* Header */}
           <header className="text-center mb-16 print:mb-10">
@@ -682,8 +834,13 @@ export default function MenuPreviewPage() {
                 {layout === "single" ? (
                   specials.map((item) => (
                     <div key={item.id} className="flex items-center gap-4 py-3">
-                      {showImages && item.image_url && (
-                        <img src={item.image_url} alt={item.name} className="w-14 h-14 rounded-[10px] object-cover shrink-0" />
+                      {showImages && (
+                        <ItemImage
+                          item={item}
+                          categoryName=""
+                          className="w-14 h-14 rounded-[10px] shrink-0"
+                          emojiSize="text-[28px]"
+                        />
                       )}
                       <div className="flex-1">
                         <span className={`text-[15px] font-medium ${cfg.text}`}>{item.name}</span>
@@ -700,8 +857,13 @@ export default function MenuPreviewPage() {
                   <div className={layout === "three-col" ? "grid grid-cols-3 gap-4" : "grid grid-cols-2 gap-4"}>
                     {specials.map((item) => (
                       <div key={item.id} className={`rounded-[10px] p-3 ${cfg.cardBg}`}>
-                        {showImages && item.image_url && (
-                          <img src={item.image_url} alt={item.name} className="w-full h-32 rounded-[8px] object-cover mb-2" />
+                        {showImages && (
+                          <ItemImage
+                            item={item}
+                            categoryName=""
+                            className="w-full h-32 rounded-[8px] mb-2"
+                            emojiSize="text-[48px]"
+                          />
                         )}
                         <p className={`text-[14px] font-medium ${cfg.text}`}>{item.name}</p>
                         {item.description && <p className={`text-[12px] mt-0.5 ${cfg.muted}`}>{item.description}</p>}
@@ -719,13 +881,6 @@ export default function MenuPreviewPage() {
             <section
               key={category.id}
               className={`mb-14 print:mb-8 ${editMode ? "relative rounded-[12px]" : ""}`}
-              draggable={editMode}
-              onDragStart={(e) => {
-                if (!editMode) return;
-                if (dragItem.current) return;
-                dragCategory.current = category.id;
-                e.dataTransfer.effectAllowed = "move";
-              }}
               onDragOver={(e) => {
                 if (editMode && dragCategory.current) e.preventDefault();
               }}
@@ -742,7 +897,12 @@ export default function MenuPreviewPage() {
               <div className="text-center mb-8 relative">
                 {editMode && (
                   <span
-                    className={`absolute left-0 top-1/2 -translate-y-1/2 ${cfg.muted} opacity-60 cursor-grab active:cursor-grabbing`}
+                    draggable
+                    onDragStart={(e) => {
+                      dragCategory.current = category.id;
+                      e.dataTransfer.effectAllowed = "move";
+                    }}
+                    className={`absolute left-0 top-1/2 -translate-y-1/2 ${cfg.muted} bg-white/90 rounded-md p-1 shadow-sm opacity-90 cursor-grab active:cursor-grabbing`}
                     title="Arrastra para reordenar categoría"
                   >
                     <GripVertical className="w-4 h-4" />
@@ -755,14 +915,18 @@ export default function MenuPreviewPage() {
                   onSave={(v) => saveCategoryName(category.id, v)}
                   className={
                     cfg.categoryTitleClass
-                      ? `${cfg.categoryTitleClass} ${cfg.accent}`
+                      ? cfg.categoryBoxed
+                        ? cfg.categoryTitleClass
+                        : `${cfg.categoryTitleClass} ${cfg.accent}`
                       : `text-[14px] tracking-[0.2em] uppercase font-medium ${cfg.accent}`
                   }
                 />
-                <div
-                  className={`mt-2 h-px w-16 mx-auto ${cfg.border} opacity-40`}
-                  style={{ borderTopWidth: 1, borderTopStyle: "solid" }}
-                />
+                {!cfg.categoryBoxed && (
+                  <div
+                    className={`mt-2 h-px w-16 mx-auto ${cfg.border} opacity-40`}
+                    style={{ borderTopWidth: 1, borderTopStyle: "solid" }}
+                  />
+                )}
               </div>
 
               {/* Items */}
@@ -772,13 +936,6 @@ export default function MenuPreviewPage() {
                     <div
                       key={item.id}
                       className={`group relative ${editMode ? "rounded-[10px] p-2 -m-2 hover:bg-black/[0.03]" : ""}`}
-                      draggable={editMode}
-                      onDragStart={(e) => {
-                        if (!editMode) return;
-                        dragItem.current = { categoryId: category.id, itemId: item.id };
-                        e.dataTransfer.effectAllowed = "move";
-                        e.stopPropagation();
-                      }}
                       onDragOver={(e) => {
                         if (
                           editMode &&
@@ -800,27 +957,45 @@ export default function MenuPreviewPage() {
                     >
                       {editMode && (
                         <span
-                          className={`absolute -left-5 top-4 ${cfg.muted} opacity-60 cursor-grab active:cursor-grabbing`}
+                          draggable
+                          onDragStart={(e) => {
+                            dragItem.current = { categoryId: category.id, itemId: item.id };
+                            e.dataTransfer.effectAllowed = "move";
+                            e.stopPropagation();
+                          }}
+                          className={`absolute -left-6 top-4 ${cfg.muted} bg-white/90 rounded-md p-1 shadow-sm cursor-grab active:cursor-grabbing`}
                           title="Arrastra para reordenar"
                         >
                           <GripVertical className="w-4 h-4" />
                         </span>
                       )}
-                      {showImages && item.image_url && (
+                      {showImages && (
                         <div className="relative mb-3">
-                          <img
-                            src={item.image_url}
-                            alt={item.name}
-                            className="w-full h-48 object-cover rounded-[12px]"
+                          <ItemImage
+                            item={item}
+                            categoryName={category.name}
+                            className="w-full h-48 rounded-[12px]"
+                            emojiSize="text-[72px]"
                           />
                           {editMode && (
-                            <button
-                              onClick={() => removeItemImage(item.id)}
-                              className="absolute top-2 right-2 bg-black/60 hover:bg-black/80 text-white rounded-full p-1.5"
-                              title="Quitar foto"
-                            >
-                              <XIcon className="w-3.5 h-3.5" />
-                            </button>
+                            <div className="absolute top-2 right-2 flex gap-1.5">
+                              <button
+                                onClick={() => triggerImageUpload(item.id)}
+                                className="bg-black/60 hover:bg-black/80 text-white rounded-full p-1.5"
+                                title={item.image_url ? "Reemplazar foto" : "Subir foto"}
+                              >
+                                <Upload className="w-3.5 h-3.5" />
+                              </button>
+                              {item.image_url && (
+                                <button
+                                  onClick={() => removeItemImage(item.id)}
+                                  className="bg-black/60 hover:bg-black/80 text-white rounded-full p-1.5"
+                                  title="Quitar foto"
+                                >
+                                  <XIcon className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+                            </div>
                           )}
                         </div>
                       )}
@@ -877,13 +1052,6 @@ export default function MenuPreviewPage() {
                     <div
                       key={item.id}
                       className={`rounded-[12px] overflow-hidden border ${cfg.border} opacity-90 hover:opacity-100 transition-opacity ${cfg.cardBg} relative`}
-                      draggable={editMode}
-                      onDragStart={(e) => {
-                        if (!editMode) return;
-                        dragItem.current = { categoryId: category.id, itemId: item.id };
-                        e.dataTransfer.effectAllowed = "move";
-                        e.stopPropagation();
-                      }}
                       onDragOver={(e) => {
                         if (
                           editMode &&
@@ -905,27 +1073,45 @@ export default function MenuPreviewPage() {
                     >
                       {editMode && (
                         <span
-                          className={`absolute top-1.5 left-1.5 z-10 ${cfg.muted} bg-white/80 backdrop-blur rounded-full p-1 opacity-80 cursor-grab active:cursor-grabbing`}
+                          draggable
+                          onDragStart={(e) => {
+                            dragItem.current = { categoryId: category.id, itemId: item.id };
+                            e.dataTransfer.effectAllowed = "move";
+                            e.stopPropagation();
+                          }}
+                          className={`absolute top-1.5 left-1.5 z-10 ${cfg.muted} bg-white/90 backdrop-blur rounded-full p-1 shadow-sm cursor-grab active:cursor-grabbing`}
                           title="Arrastra para reordenar"
                         >
                           <GripVertical className="w-3.5 h-3.5" />
                         </span>
                       )}
-                      {showImages && item.image_url && (
+                      {showImages && (
                         <div className="relative">
-                          <img
-                            src={item.image_url}
-                            alt={item.name}
-                            className={`w-full object-cover ${layout === "three-col" ? "h-32" : "h-40"}`}
+                          <ItemImage
+                            item={item}
+                            categoryName={category.name}
+                            className={`w-full ${layout === "three-col" ? "h-32" : "h-40"}`}
+                            emojiSize={layout === "three-col" ? "text-[48px]" : "text-[60px]"}
                           />
                           {editMode && (
-                            <button
-                              onClick={() => removeItemImage(item.id)}
-                              className="absolute top-1.5 right-1.5 bg-black/60 hover:bg-black/80 text-white rounded-full p-1"
-                              title="Quitar foto"
-                            >
-                              <XIcon className="w-3 h-3" />
-                            </button>
+                            <div className="absolute top-1.5 right-1.5 flex gap-1">
+                              <button
+                                onClick={() => triggerImageUpload(item.id)}
+                                className="bg-black/60 hover:bg-black/80 text-white rounded-full p-1"
+                                title={item.image_url ? "Reemplazar foto" : "Subir foto"}
+                              >
+                                <Upload className="w-3 h-3" />
+                              </button>
+                              {item.image_url && (
+                                <button
+                                  onClick={() => removeItemImage(item.id)}
+                                  className="bg-black/60 hover:bg-black/80 text-white rounded-full p-1"
+                                  title="Quitar foto"
+                                >
+                                  <XIcon className="w-3 h-3" />
+                                </button>
+                              )}
+                            </div>
                           )}
                           {cfg.priceBadge && (
                             <span
