@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, type CSSProperties } from "react";
 import {
   ArrowLeft,
   Printer,
@@ -35,6 +35,7 @@ interface Category {
   id: string;
   name: string;
   sort_order: number;
+  font_scale: number;
   items: MenuItem[];
 }
 
@@ -49,7 +50,9 @@ type MenuStyle =
   | "colombiano"
   | "cafeteria"
   | "rustico"
-  | "bistro";
+  | "bistro"
+  | "lista"
+  | "marca";
 type LayoutMode = "single" | "two-col" | "three-col";
 
 function formatPrice(price: number) {
@@ -262,7 +265,67 @@ const STYLE_CONFIG: Record<MenuStyle, {
     categoryTitleClass:
       "inline-block px-6 py-2 bg-[#0f1d33] text-[#f5efdf] text-[14px] font-bold tracking-[0.3em] uppercase",
   },
+  lista: {
+    label: "Lista",
+    emoji: "📋",
+    bg: "bg-white",
+    text: "text-[#1a1a1a]",
+    accent: "text-[#555]",
+    accentText: "text-[#111]",
+    muted: "text-[#777]",
+    border: "border-[#e5e5e5]",
+    specialBg: "bg-[#fafafa]",
+    specialBorder: "border-[#e5e5e5]",
+    cardBg: "bg-[#fafafa]",
+    titleClass: "text-[30px] font-medium tracking-[0.04em]",
+    categoryTitleClass: "text-[12px] tracking-[0.3em] uppercase font-medium",
+  },
+  marca: {
+    label: "Marca",
+    emoji: "🎨",
+    bg: "bg-[color:var(--menu-bg)]",
+    text: "text-[color:var(--menu-text)]",
+    accent: "text-[color:var(--menu-accent)]",
+    accentText: "text-[color:var(--menu-accent)]",
+    muted: "text-[color:var(--menu-muted)]",
+    border: "border-[color:var(--menu-border)]",
+    specialBg: "bg-[color:var(--menu-special-bg)]",
+    specialBorder: "border-[color:var(--menu-accent)]",
+    cardBg: "bg-white/70",
+    headerDecoration: "diamond",
+    titleClass: "text-[42px] font-light tracking-[0.05em]",
+    categoryTitleClass: "text-[14px] tracking-[0.25em] uppercase font-semibold",
+  },
 };
+
+function hexToRgb(hex: string): { r: number; g: number; b: number } {
+  const m = hex.replace("#", "").match(/.{1,2}/g);
+  if (!m || m.length < 3) return { r: 168, g: 85, b: 247 };
+  const pad = (s: string) => (s.length === 1 ? s + s : s);
+  return {
+    r: parseInt(pad(m[0]), 16),
+    g: parseInt(pad(m[1]), 16),
+    b: parseInt(pad(m[2]), 16),
+  };
+}
+
+function mixColor(hex: string, t: number, target: "white" | "black"): string {
+  const { r, g, b } = hexToRgb(hex);
+  const n = target === "white" ? 255 : 0;
+  const m = (c: number) => Math.round(c + (n - c) * t);
+  return `rgb(${m(r)}, ${m(g)}, ${m(b)})`;
+}
+
+function brandCssVars(primary: string): Record<string, string> {
+  return {
+    "--menu-bg": mixColor(primary, 0.93, "white"),
+    "--menu-text": "#1a1127",
+    "--menu-accent": primary,
+    "--menu-muted": mixColor(primary, 0.55, "black"),
+    "--menu-border": mixColor(primary, 0.75, "white"),
+    "--menu-special-bg": mixColor(primary, 0.85, "white"),
+  };
+}
 
 function HeaderDecoration({ type, accent }: { type?: string; accent: string }) {
   switch (type) {
@@ -490,7 +553,7 @@ export default function MenuPreviewPage() {
     const { data } = await supabase
       .from("menu_categories")
       .select(
-        "id, name, sort_order, menu_items(id, name, description, price, image_url, is_available, is_daily_special, sort_order)"
+        "id, name, sort_order, font_scale, menu_items(id, name, description, price, image_url, is_available, is_daily_special, sort_order)"
       )
       .eq("restaurant_id", restaurant.id)
       .eq("is_active", true)
@@ -510,6 +573,7 @@ export default function MenuPreviewPage() {
       id: string;
       name: string;
       sort_order: number | null;
+      font_scale: number | string | null;
       menu_items: RawItem[] | null;
     };
     setCategories(
@@ -518,6 +582,8 @@ export default function MenuPreviewPage() {
           id: c.id,
           name: c.name,
           sort_order: c.sort_order ?? 0,
+          font_scale:
+            c.font_scale == null ? 1 : Number(c.font_scale) || 1,
           items: (c.menu_items ?? [])
             .filter((i) => i.is_available)
             .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
@@ -573,6 +639,14 @@ export default function MenuPreviewPage() {
     if (!name) return;
     setCategories((prev) => prev.map((c) => (c.id === categoryId ? { ...c, name } : c)));
     await supabase.from("menu_categories").update({ name }).eq("id", categoryId);
+  }
+
+  async function saveCategoryFontScale(categoryId: string, scale: number) {
+    const next = Math.max(0.6, Math.min(2, +scale.toFixed(2)));
+    setCategories((prev) =>
+      prev.map((c) => (c.id === categoryId ? { ...c, font_scale: next } : c))
+    );
+    await supabase.from("menu_categories").update({ font_scale: next }).eq("id", categoryId);
   }
 
   function triggerImageUpload(itemId: string) {
@@ -656,6 +730,7 @@ export default function MenuPreviewPage() {
   }
 
   const cfg = STYLE_CONFIG[style];
+  const brandVars = style === "marca" ? brandCssVars(restaurant?.primary_color ?? "#a855f7") : null;
   const specials = categories.flatMap((c) => c.items.filter((i) => i.is_daily_special));
 
   const gridClass =
@@ -800,7 +875,8 @@ export default function MenuPreviewPage() {
                   "radial-gradient(circle at 20% 30%, rgba(139,106,64,0.06) 0px, transparent 40%), radial-gradient(circle at 80% 70%, rgba(139,106,64,0.05) 0px, transparent 45%), radial-gradient(circle at 50% 90%, rgba(29,58,74,0.04) 0px, transparent 35%)",
               }
             : {}),
-        }}
+          ...(brandVars ?? {}),
+        } as CSSProperties}
       >
         <div className={`mx-auto px-8 py-16 print:py-8 ${layout === "three-col" ? "max-w-5xl" : layout === "two-col" ? "max-w-4xl" : "max-w-3xl"}`}>
           {/* Header */}
@@ -896,17 +972,43 @@ export default function MenuPreviewPage() {
               {/* Category title */}
               <div className="text-center mb-8 relative">
                 {editMode && (
-                  <span
-                    draggable
-                    onDragStart={(e) => {
-                      dragCategory.current = category.id;
-                      e.dataTransfer.effectAllowed = "move";
-                    }}
-                    className={`absolute left-0 top-1/2 -translate-y-1/2 ${cfg.muted} bg-white/90 rounded-md p-1 shadow-sm opacity-90 cursor-grab active:cursor-grabbing`}
-                    title="Arrastra para reordenar categoría"
-                  >
-                    <GripVertical className="w-4 h-4" />
-                  </span>
+                  <>
+                    <span
+                      draggable
+                      onDragStart={(e) => {
+                        dragCategory.current = category.id;
+                        e.dataTransfer.effectAllowed = "move";
+                      }}
+                      className={`absolute left-0 top-1/2 -translate-y-1/2 ${cfg.muted} bg-white/90 rounded-md p-1 shadow-sm opacity-90 cursor-grab active:cursor-grabbing print:hidden`}
+                      title="Arrastra para reordenar categoría"
+                    >
+                      <GripVertical className="w-4 h-4" />
+                    </span>
+                    <div
+                      className="absolute right-0 top-1/2 -translate-y-1/2 flex items-center gap-0.5 bg-white/90 rounded-md p-0.5 shadow-sm print:hidden"
+                      title="Tamaño de letra de la sección"
+                    >
+                      <button
+                        onClick={() =>
+                          saveCategoryFontScale(category.id, category.font_scale - 0.1)
+                        }
+                        className="px-1.5 py-0.5 rounded text-[11px] font-semibold text-text-secondary hover:bg-bg-warm"
+                      >
+                        A−
+                      </button>
+                      <span className="text-[10px] text-text-muted w-8 text-center tabular-nums">
+                        {Math.round(category.font_scale * 100)}%
+                      </span>
+                      <button
+                        onClick={() =>
+                          saveCategoryFontScale(category.id, category.font_scale + 0.1)
+                        }
+                        className="px-1.5 py-0.5 rounded text-[11px] font-semibold text-text-secondary hover:bg-bg-warm"
+                      >
+                        A+
+                      </button>
+                    </div>
+                  </>
                 )}
                 <Editable
                   as="h2"
@@ -928,6 +1030,9 @@ export default function MenuPreviewPage() {
                   />
                 )}
               </div>
+
+              {/* Items wrapper with per-category scale */}
+              <div style={category.font_scale !== 1 ? { zoom: category.font_scale } : undefined}>
 
               {/* Items */}
               {layout === "single" ? (
@@ -1163,6 +1268,7 @@ export default function MenuPreviewPage() {
                   ))}
                 </div>
               )}
+              </div>
             </section>
           ))}
 
