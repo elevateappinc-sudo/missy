@@ -289,6 +289,11 @@ DO $$ BEGIN
     CREATE POLICY public_update_sessions ON client_sessions FOR UPDATE USING (true);
   END IF;
 END $$;
+
+-- ============================================
+-- V5: Menu — per-category font scale
+-- ============================================
+ALTER TABLE menu_categories ADD COLUMN IF NOT EXISTS font_scale NUMERIC(3,2) DEFAULT 1.0;
 `;
 
 async function migrate() {
