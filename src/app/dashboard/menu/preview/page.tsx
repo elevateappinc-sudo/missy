@@ -16,6 +16,8 @@ import {
   Upload,
   Minus,
   Plus,
+  AlignJustify,
+  Palette,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useSession } from "@/hooks/use-session";
@@ -50,10 +52,8 @@ type MenuStyle =
   | "colombiano"
   | "cafeteria"
   | "rustico"
-  | "bistro"
-  | "lista"
-  | "marca";
-type LayoutMode = "single" | "two-col" | "three-col";
+  | "bistro";
+type LayoutMode = "single" | "two-col" | "three-col" | "lista";
 
 function formatPrice(price: number) {
   return new Intl.NumberFormat("es-CO", {
@@ -265,65 +265,26 @@ const STYLE_CONFIG: Record<MenuStyle, {
     categoryTitleClass:
       "inline-block px-6 py-2 bg-[#0f1d33] text-[#f5efdf] text-[14px] font-bold tracking-[0.3em] uppercase",
   },
-  lista: {
-    label: "Lista",
-    emoji: "📋",
-    bg: "bg-white",
-    text: "text-[#1a1a1a]",
-    accent: "text-[#555]",
-    accentText: "text-[#111]",
-    muted: "text-[#777]",
-    border: "border-[#e5e5e5]",
-    specialBg: "bg-[#fafafa]",
-    specialBorder: "border-[#e5e5e5]",
-    cardBg: "bg-[#fafafa]",
-    titleClass: "text-[30px] font-medium tracking-[0.04em]",
-    categoryTitleClass: "text-[12px] tracking-[0.3em] uppercase font-medium",
-  },
-  marca: {
-    label: "Marca",
-    emoji: "🎨",
-    bg: "bg-[color:var(--menu-bg)]",
-    text: "text-[color:var(--menu-text)]",
-    accent: "text-[color:var(--menu-accent)]",
-    accentText: "text-[color:var(--menu-accent)]",
-    muted: "text-[color:var(--menu-muted)]",
-    border: "border-[color:var(--menu-border)]",
-    specialBg: "bg-[color:var(--menu-special-bg)]",
-    specialBorder: "border-[color:var(--menu-accent)]",
-    cardBg: "bg-white/70",
-    headerDecoration: "diamond",
-    titleClass: "text-[42px] font-light tracking-[0.05em]",
-    categoryTitleClass: "text-[14px] tracking-[0.25em] uppercase font-semibold",
-  },
 };
 
-function hexToRgb(hex: string): { r: number; g: number; b: number } {
-  const m = hex.replace("#", "").match(/.{1,2}/g);
-  if (!m || m.length < 3) return { r: 168, g: 85, b: 247 };
-  const pad = (s: string) => (s.length === 1 ? s + s : s);
+function brandVars(primary: string, secondary: string): Record<string, string> {
   return {
-    r: parseInt(pad(m[0]), 16),
-    g: parseInt(pad(m[1]), 16),
-    b: parseInt(pad(m[2]), 16),
+    "--brand-primary": primary,
+    "--brand-secondary": secondary,
   };
 }
 
-function mixColor(hex: string, t: number, target: "white" | "black"): string {
-  const { r, g, b } = hexToRgb(hex);
-  const n = target === "white" ? 255 : 0;
-  const m = (c: number) => Math.round(c + (n - c) * t);
-  return `rgb(${m(r)}, ${m(g)}, ${m(b)})`;
-}
-
-function brandCssVars(primary: string): Record<string, string> {
+function withBrandColors<T extends { accent: string; accentText: string; border: string; specialBg: string; specialBorder: string; categoryTitleClass?: string; categoryBoxed?: boolean }>(cfg: T): T {
   return {
-    "--menu-bg": mixColor(primary, 0.93, "white"),
-    "--menu-text": "#1a1127",
-    "--menu-accent": primary,
-    "--menu-muted": mixColor(primary, 0.55, "black"),
-    "--menu-border": mixColor(primary, 0.75, "white"),
-    "--menu-special-bg": mixColor(primary, 0.85, "white"),
+    ...cfg,
+    accent: "text-[color:var(--brand-primary)]",
+    accentText: "text-[color:var(--brand-primary)]",
+    border: "border-[color:var(--brand-primary)]",
+    specialBg: "bg-[color:var(--brand-secondary)]",
+    specialBorder: "border-[color:var(--brand-primary)]",
+    categoryTitleClass: cfg.categoryBoxed
+      ? "inline-block px-6 py-2 bg-[color:var(--brand-primary)] text-white text-[14px] font-bold tracking-[0.3em] uppercase"
+      : cfg.categoryTitleClass,
   };
 }
 
@@ -542,6 +503,7 @@ export default function MenuPreviewPage() {
   const [layout, setLayout] = useState<LayoutMode>("single");
   const [showImages, setShowImages] = useState(true);
   const [editMode, setEditMode] = useState(false);
+  const [useBrandColors, setUseBrandColors] = useState(false);
   const [fontScale, setFontScale] = useState(1);
   const [uploadTarget, setUploadTarget] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -729,8 +691,14 @@ export default function MenuPreviewPage() {
     );
   }
 
-  const cfg = STYLE_CONFIG[style];
-  const brandVars = style === "marca" ? brandCssVars(restaurant?.primary_color ?? "#a855f7") : null;
+  const baseCfg = STYLE_CONFIG[style];
+  const cfg = useBrandColors ? withBrandColors(baseCfg) : baseCfg;
+  const cssVars = useBrandColors
+    ? brandVars(
+        restaurant?.primary_color ?? "#a855f7",
+        restaurant?.secondary_color ?? "#f472b6"
+      )
+    : null;
   const specials = categories.flatMap((c) => c.items.filter((i) => i.is_daily_special));
 
   const gridClass =
@@ -776,6 +744,13 @@ export default function MenuPreviewPage() {
               >
                 <Columns3 className="w-4 h-4" />
               </button>
+              <button
+                onClick={() => setLayout("lista")}
+                className={`p-1.5 rounded-[8px] transition-all ${layout === "lista" ? "bg-white shadow-sm text-text-primary" : "text-text-muted hover:text-text-secondary"}`}
+                title="Lista (sin imágenes)"
+              >
+                <AlignJustify className="w-4 h-4" />
+              </button>
             </div>
             {/* Images toggle */}
             <button
@@ -784,6 +759,14 @@ export default function MenuPreviewPage() {
               title={showImages ? "Ocultar imágenes" : "Mostrar imágenes"}
             >
               {showImages ? <ImageIcon className="w-4 h-4" /> : <ImageOff className="w-4 h-4" />}
+            </button>
+            {/* Brand colors toggle */}
+            <button
+              onClick={() => setUseBrandColors((v) => !v)}
+              className={`p-1.5 rounded-[8px] transition-all ${useBrandColors ? "bg-primary/10 text-primary" : "bg-bg-warm text-text-muted"}`}
+              title={useBrandColors ? "Usando colores de marca" : "Aplicar colores de marca (settings)"}
+            >
+              <Palette className="w-4 h-4" />
             </button>
             {/* Edit mode toggle */}
             <button
@@ -875,10 +858,10 @@ export default function MenuPreviewPage() {
                   "radial-gradient(circle at 20% 30%, rgba(139,106,64,0.06) 0px, transparent 40%), radial-gradient(circle at 80% 70%, rgba(139,106,64,0.05) 0px, transparent 45%), radial-gradient(circle at 50% 90%, rgba(29,58,74,0.04) 0px, transparent 35%)",
               }
             : {}),
-          ...(brandVars ?? {}),
+          ...(cssVars ?? {}),
         } as CSSProperties}
       >
-        <div className={`mx-auto px-8 py-16 print:py-8 ${layout === "three-col" ? "max-w-5xl" : layout === "two-col" ? "max-w-4xl" : "max-w-3xl"}`}>
+        <div className={`mx-auto px-8 py-16 print:py-8 ${layout === "three-col" ? "max-w-5xl" : layout === "two-col" || layout === "lista" ? "max-w-4xl" : "max-w-3xl"}`}>
           {/* Header */}
           <header className="text-center mb-16 print:mb-10">
             <HeaderDecoration type={cfg.headerDecoration} accent={cfg.accent} />
@@ -907,10 +890,10 @@ export default function MenuPreviewPage() {
                 </p>
               </div>
               <div className={`rounded-[12px] p-6 border ${cfg.specialBorder} ${cfg.specialBg}`}>
-                {layout === "single" ? (
+                {layout === "single" || layout === "lista" ? (
                   specials.map((item) => (
                     <div key={item.id} className="flex items-center gap-4 py-3">
-                      {showImages && (
+                      {showImages && layout !== "lista" && (
                         <ItemImage
                           item={item}
                           categoryName=""
@@ -1035,7 +1018,79 @@ export default function MenuPreviewPage() {
               <div style={category.font_scale !== 1 ? { zoom: category.font_scale } : undefined}>
 
               {/* Items */}
-              {layout === "single" ? (
+              {layout === "lista" ? (
+                <div className="columns-2 gap-10 [column-rule:1px_solid] [column-rule-color:currentColor]/10">
+                  {category.items.map((item) => (
+                    <div
+                      key={item.id}
+                      className={`break-inside-avoid mb-3 relative ${editMode ? "rounded-[8px] p-1.5 -m-1.5 hover:bg-black/[0.03]" : ""}`}
+                      onDragOver={(e) => {
+                        if (
+                          editMode &&
+                          dragItem.current &&
+                          dragItem.current.categoryId === category.id
+                        )
+                          e.preventDefault();
+                      }}
+                      onDrop={(e) => {
+                        if (!editMode) return;
+                        const d = dragItem.current;
+                        if (d && d.categoryId === category.id && d.itemId !== item.id) {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          reorderItems(category.id, d.itemId, item.id);
+                        }
+                        dragItem.current = null;
+                      }}
+                    >
+                      {editMode && (
+                        <span
+                          draggable
+                          onDragStart={(e) => {
+                            dragItem.current = { categoryId: category.id, itemId: item.id };
+                            e.dataTransfer.effectAllowed = "move";
+                            e.stopPropagation();
+                          }}
+                          className={`absolute -left-5 top-1 ${cfg.muted} bg-white/90 rounded p-0.5 shadow-sm cursor-grab active:cursor-grabbing print:hidden`}
+                          title="Arrastra para reordenar"
+                        >
+                          <GripVertical className="w-3 h-3" />
+                        </span>
+                      )}
+                      <div className="flex items-baseline gap-2">
+                        <Editable
+                          as="span"
+                          value={item.name}
+                          editable={editMode}
+                          onSave={(v) => saveItemField(item.id, "name", v)}
+                          className={`text-[14px] font-medium ${cfg.text}`}
+                        />
+                        <span className={`flex-1 border-b border-dotted ${cfg.border} opacity-40`} />
+                        <span className={`text-[13px] font-medium whitespace-nowrap ${cfg.accentText}`}>
+                          $
+                          <Editable
+                            as="span"
+                            value={formatPrice(item.price)}
+                            editable={editMode}
+                            onSave={(v) => saveItemField(item.id, "price", v)}
+                          />
+                        </span>
+                      </div>
+                      {(item.description || editMode) && (
+                        <Editable
+                          as="p"
+                          value={item.description ?? ""}
+                          editable={editMode}
+                          multiline
+                          placeholder={editMode ? "Añadir descripción…" : ""}
+                          onSave={(v) => saveItemField(item.id, "description", v)}
+                          className={`mt-0.5 text-[11px] leading-snug ${cfg.muted}`}
+                        />
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ) : layout === "single" ? (
                 <div className="space-y-5">
                   {category.items.map((item) => (
                     <div
@@ -1115,7 +1170,7 @@ export default function MenuPreviewPage() {
                         <span className={`flex-1 border-b border-dotted ${cfg.border} opacity-30`} />
                         {cfg.priceBadge ? (
                           <span
-                            className={`inline-flex items-center justify-center min-w-[56px] h-[56px] rounded-full text-[16px] font-bold whitespace-nowrap px-3 bg-[#1d3a4a] ${cfg.accentText}`}
+                            className={`inline-flex items-center justify-center min-w-[56px] h-[56px] rounded-full text-[16px] font-bold whitespace-nowrap px-3 ${useBrandColors ? "bg-[color:var(--brand-primary)]" : "bg-[#1d3a4a]"} text-white`}
                           >
                             <Editable
                               as="span"
@@ -1220,7 +1275,7 @@ export default function MenuPreviewPage() {
                           )}
                           {cfg.priceBadge && (
                             <span
-                              className={`absolute bottom-2 right-2 inline-flex items-center justify-center min-w-[50px] h-[50px] rounded-full text-[14px] font-bold px-2 bg-[#1d3a4a] text-white shadow-md`}
+                              className={`absolute bottom-2 right-2 inline-flex items-center justify-center min-w-[50px] h-[50px] rounded-full text-[14px] font-bold px-2 ${useBrandColors ? "bg-[color:var(--brand-primary)]" : "bg-[#1d3a4a]"} text-white shadow-md`}
                             >
                               <Editable
                                 as="span"
