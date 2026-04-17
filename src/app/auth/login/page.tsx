@@ -23,7 +23,14 @@ export default function LoginPage() {
       setError("Correo o contraseña incorrectos");
       setIsLoading(false);
     } else {
-      router.push("/dashboard");
+      const pendingToken = typeof window !== "undefined"
+        ? window.localStorage.getItem("pending_invitation_token")
+        : null;
+      if (pendingToken) {
+        router.push(`/auth/invite/${pendingToken}`);
+      } else {
+        router.push("/dashboard");
+      }
     }
   }
 
@@ -166,7 +173,7 @@ export default function LoginPage() {
                 <input type="checkbox" className="w-3.5 h-3.5 rounded accent-primary" />
                 <span className="text-[13px] text-text-secondary">Recordarme</span>
               </label>
-              <Link href="#" className="text-[13px] text-text-secondary hover:text-primary font-medium transition-colors duration-300">
+              <Link href="/auth/forgot-password" className="text-[13px] text-text-secondary hover:text-primary font-medium transition-colors duration-300">
                 ¿Olvidaste tu contraseña?
               </Link>
             </div>
