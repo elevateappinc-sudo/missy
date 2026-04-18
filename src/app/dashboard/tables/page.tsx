@@ -12,7 +12,14 @@ import { getNextTableNumber } from "@/lib/tables";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import type { Table, TableStatus } from "@/types";
 
+interface FloorRow {
+  id: string;
+  name: string;
+  sort_order: number;
+}
+
 interface FloorSummary {
+  id: string;
   name: string;
   total: number;
   capacity: number;
@@ -26,6 +33,7 @@ export default function TablesFloorsPage() {
   const router = useRouter();
   const { user } = useSession();
   const { restaurant } = useRestaurant(user?.id);
+  const [floorRows, setFloorRows] = useState<FloorRow[]>([]);
   const [tables, setTables] = useState<Table[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
@@ -33,8 +41,29 @@ export default function TablesFloorsPage() {
   const [creating, setCreating] = useState(false);
   const [editingFloor, setEditingFloor] = useState<string | null>(null);
   const [editFloorName, setEditFloorName] = useState("");
-  const [floorToDelete, setFloorToDelete] = useState<string | null>(null);
+  const [floorToDelete, setFloorToDelete] = useState<FloorRow | null>(null);
   const [deleting, setDeleting] = useState(false);
+
+  const loadFloors = useCallback(async () => {
+    if (!restaurant) return;
+    const { data } = await supabase
+      .from("restaurant_floors")
+      .select("id, name, sort_order")
+      .eq("restaurant_id", restaurant.id)
+      .order("sort_order")
+      .order("name");
+    const rows = (data as FloorRow[] | null) ?? [];
+    if (rows.length === 0) {
+      const { data: inserted } = await supabase
+        .from("restaurant_floors")
+        .insert({ restaurant_id: restaurant.id, name: "Piso 1", sort_order: 0 })
+        .select("id, name, sort_order")
+        .single();
+      if (inserted) setFloorRows([inserted as FloorRow]);
+    } else {
+      setFloorRows(rows);
+    }
+  }, [restaurant, supabase]);
 
   const loadTables = useCallback(async () => {
     if (!restaurant) return;
@@ -48,51 +77,81 @@ export default function TablesFloorsPage() {
       floor: t.floor || "Piso 1",
     }));
     setTables(loaded);
-    setLoading(false);
   }, [restaurant, supabase]);
 
   useEffect(() => {
-    loadTables();
-  }, [loadTables]);
+    Promise.all([loadFloors(), loadTables()]).then(() => setLoading(false));
+  }, [loadFloors, loadTables]);
 
   useEffect(() => {
     if (!restaurant) return;
-    const channel = supabase
-      .channel("floors-realtime")
+    const tablesChannel = supabase
+      .channel("floors-tables-realtime")
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "tables", filter: `restaurant_id=eq.${restaurant.id}` },
         () => loadTables()
       )
       .subscribe();
-    return () => { supabase.removeChannel(channel); };
-  }, [restaurant, supabase, loadTables]);
+    const floorsChannel = supabase
+      .channel("floors-realtime")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "restaurant_floors", filter: `restaurant_id=eq.${restaurant.id}` },
+        () => loadFloors()
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(tablesChannel);
+      supabase.removeChannel(floorsChannel);
+    };
+  }, [restaurant, supabase, loadFloors, loadTables]);
 
-  const floorsMap = tables.reduce<Record<string, FloorSummary>>((acc, t) => {
-    const f = t.floor || "Piso 1";
-    if (!acc[f]) {
-      acc[f] = { name: f, total: 0, capacity: 0, counts: {} };
+  const floorNameSet = new Set(floorRows.map((f) => f.name));
+
+  const floors: FloorSummary[] = floorRows.map((f) => {
+    const tablesForFloor = tables.filter((t) => t.floor === f.name);
+    const counts: Partial<Record<TableStatus, number>> = {};
+    let capacity = 0;
+    for (const t of tablesForFloor) {
+      counts[t.status] = (counts[t.status] || 0) + 1;
+      capacity += t.capacity;
     }
-    acc[f].total += 1;
-    acc[f].capacity += t.capacity;
-    acc[f].counts[t.status] = (acc[f].counts[t.status] || 0) + 1;
-    return acc;
-  }, {});
-
-  const floors = Object.values(floorsMap).sort((a, b) => a.name.localeCompare(b.name));
+    return {
+      id: f.id,
+      name: f.name,
+      total: tablesForFloor.length,
+      capacity,
+      counts,
+    };
+  });
 
   async function createFloor(name: string) {
     if (!restaurant || !name.trim()) return;
     const clean = name.trim();
-    if (floorsMap[clean]) {
+    if (floorNameSet.has(clean)) {
       alert("Ya existe un piso con ese nombre.");
       return;
     }
     setCreating(true);
+    const nextOrder = Math.max(0, ...floorRows.map((r) => r.sort_order)) + 1;
+    const { data: inserted, error: floorErr } = await supabase
+      .from("restaurant_floors")
+      .insert({ restaurant_id: restaurant.id, name: clean, sort_order: nextOrder })
+      .select("id, name, sort_order")
+      .single();
+
+    if (floorErr || !inserted) {
+      setCreating(false);
+      alert(`Error al crear piso: ${floorErr?.message ?? "desconocido"}`);
+      return;
+    }
+
+    // Insert a default table so the floor starts with something usable
     const isBar = clean.toLowerCase().includes("barra");
     const nextNumber = getNextTableNumber(tables, isBar ? "Barra" : "Mesa");
     const qrCode = `${restaurant.id}-mesa-${Date.now()}-${crypto.randomUUID().slice(0, 6)}`;
-    const { error } = await supabase.from("tables").insert({
+    await supabase.from("tables").insert({
       name: `${isBar ? "Barra" : "Mesa"} ${nextNumber}`,
       restaurant_id: restaurant.id,
       qr_code: qrCode,
@@ -105,50 +164,54 @@ export default function TablesFloorsPage() {
       status: "empty",
       floor: clean,
     });
+
     setCreating(false);
-    if (error) {
-      alert(`Error al crear piso: ${error.message}`);
-      return;
-    }
     setNewFloorName("");
     setShowModal(false);
-    await loadTables();
+    await Promise.all([loadFloors(), loadTables()]);
     router.push(`/dashboard/tables/${encodeURIComponent(clean)}`);
   }
 
-  async function renameFloor(oldName: string, newName: string) {
-    if (editingFloor !== oldName) return; // Prevent double-invocation (Enter + onBlur)
+  async function renameFloor(floor: { id: string; name: string }, newName: string) {
+    if (editingFloor !== floor.name) return; // Prevent double-invocation (Enter + onBlur)
     const clean = newName.trim();
     setEditingFloor(null);
-    if (!clean || clean === oldName) return;
-    if (floorsMap[clean]) {
+    if (!clean || clean === floor.name) return;
+    if (floorNameSet.has(clean)) {
       alert("Ya existe un piso con ese nombre.");
       return;
     }
     if (!restaurant) return;
+    await supabase.from("restaurant_floors").update({ name: clean }).eq("id", floor.id);
     await supabase
       .from("tables")
       .update({ floor: clean })
       .eq("restaurant_id", restaurant.id)
-      .eq("floor", oldName);
-    loadTables();
+      .eq("floor", floor.name);
+    await Promise.all([loadFloors(), loadTables()]);
   }
 
   async function confirmDeleteFloor() {
     if (!floorToDelete || !restaurant) return;
+    if (floorRows.length <= 1) {
+      alert("Debe existir al menos un piso.");
+      setFloorToDelete(null);
+      return;
+    }
     setDeleting(true);
     await supabase
       .from("tables")
       .delete()
       .eq("restaurant_id", restaurant.id)
-      .eq("floor", floorToDelete);
+      .eq("floor", floorToDelete.name);
+    await supabase.from("restaurant_floors").delete().eq("id", floorToDelete.id);
     setDeleting(false);
     setFloorToDelete(null);
-    loadTables();
+    await Promise.all([loadFloors(), loadTables()]);
   }
 
   const floorToDeleteCount = floorToDelete
-    ? tables.filter((t) => t.floor === floorToDelete).length
+    ? tables.filter((t) => t.floor === floorToDelete.name).length
     : 0;
 
   return (
@@ -194,7 +257,7 @@ export default function TablesFloorsPage() {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {floors.map((floor) => (
             <div
-              key={floor.name}
+              key={floor.id}
               className="group bg-white rounded-[16px] border border-border-light hover:border-primary/30 hover:shadow-[0_4px_24px_rgba(168,85,247,0.08)] transition-all duration-300 overflow-hidden"
             >
               <Link
@@ -209,11 +272,11 @@ export default function TablesFloorsPage() {
                         value={editFloorName}
                         onClick={(e) => e.preventDefault()}
                         onChange={(e) => setEditFloorName(e.target.value)}
-                        onBlur={() => renameFloor(floor.name, editFloorName)}
+                        onBlur={() => renameFloor(floor, editFloorName)}
                         onKeyDown={(e) => {
                           if (e.key === "Enter") {
                             e.preventDefault();
-                            renameFloor(floor.name, editFloorName);
+                            renameFloor(floor, editFloorName);
                           }
                           if (e.key === "Escape") setEditingFloor(null);
                         }}
@@ -259,10 +322,12 @@ export default function TablesFloorsPage() {
                   <button
                     onClick={(e) => {
                       e.preventDefault();
-                      setFloorToDelete(floor.name);
+                      setFloorToDelete({ id: floor.id, name: floor.name, sort_order: 0 });
                     }}
-                    className="w-7 h-7 rounded-[6px] flex items-center justify-center text-text-muted hover:text-error hover:bg-error/8 transition-all"
+                    disabled={floorRows.length <= 1}
+                    className="w-7 h-7 rounded-[6px] flex items-center justify-center text-text-muted hover:text-error hover:bg-error/8 transition-all disabled:opacity-30 disabled:hover:text-text-muted disabled:hover:bg-transparent"
                     aria-label="Eliminar piso"
+                    title={floorRows.length <= 1 ? "Debe existir al menos un piso" : "Eliminar piso"}
                   >
                     <Trash2 className="w-3.5 h-3.5" />
                   </button>
@@ -290,7 +355,7 @@ export default function TablesFloorsPage() {
             <div className="mb-4">
               <p className="text-[12px] font-medium text-text-primary mb-2">Sugerencias</p>
               <div className="flex flex-wrap gap-2">
-                {SUGGESTED.filter((s) => !floorsMap[s]).map((s) => (
+                {SUGGESTED.filter((s) => !floorNameSet.has(s)).map((s) => (
                   <button
                     key={s}
                     disabled={creating}
@@ -332,7 +397,7 @@ export default function TablesFloorsPage() {
       <ConfirmDialog
         open={!!floorToDelete}
         variant="danger"
-        title={`Eliminar "${floorToDelete}"`}
+        title={floorToDelete ? `Eliminar "${floorToDelete.name}"` : ""}
         description={
           floorToDeleteCount > 0
             ? `Este piso tiene ${floorToDeleteCount} ${floorToDeleteCount === 1 ? "mesa" : "mesas"}. Al continuar se eliminarán todas. Esta acción no se puede deshacer.`

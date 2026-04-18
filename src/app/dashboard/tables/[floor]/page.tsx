@@ -28,18 +28,31 @@ export default function FloorPage({ params }: { params: Promise<{ floor: string 
 
   const loadTables = useCallback(async () => {
     if (!restaurant) return;
-    const { data } = await supabase
-      .from("tables")
-      .select("*")
-      .eq("restaurant_id", restaurant.id)
-      .order("created_at");
-    const loaded = ((data as Table[]) ?? []).map((t) => ({
+    const [{ data: tableData }, { data: floorData }] = await Promise.all([
+      supabase
+        .from("tables")
+        .select("*")
+        .eq("restaurant_id", restaurant.id)
+        .order("created_at"),
+      supabase
+        .from("restaurant_floors")
+        .select("name, sort_order")
+        .eq("restaurant_id", restaurant.id)
+        .order("sort_order")
+        .order("name"),
+    ]);
+    const loaded = ((tableData as Table[]) ?? []).map((t) => ({
       ...t,
       floor: t.floor || "Piso 1",
     }));
     setTables(loaded);
-    const unique = Array.from(new Set(loaded.map((t) => t.floor))).sort();
-    setFloors(unique.length ? unique : [floorName]);
+    const names = ((floorData as { name: string }[] | null) ?? []).map((r) => r.name);
+    if (names.length > 0) {
+      setFloors(names);
+    } else {
+      const unique = Array.from(new Set(loaded.map((t) => t.floor))).sort();
+      setFloors(unique.length ? unique : [floorName]);
+    }
   }, [restaurant, supabase, floorName]);
 
   useEffect(() => {

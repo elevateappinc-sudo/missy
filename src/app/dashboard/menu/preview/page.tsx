@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef, type CSSProperties } from "react";
 import {
   ArrowLeft,
   Printer,
@@ -16,6 +16,9 @@ import {
   Upload,
   Minus,
   Plus,
+  AlignJustify,
+  Palette,
+  Move,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useSession } from "@/hooks/use-session";
@@ -35,8 +38,28 @@ interface Category {
   id: string;
   name: string;
   sort_order: number;
+  font_scale: number;
+  layout_x: number | null;
+  layout_y: number | null;
+  layout_w: number | null;
   items: MenuItem[];
 }
+
+type TextBlockType = "heading" | "paragraph" | "footer";
+
+interface TextBlock {
+  id: string;
+  content: string;
+  block_type: TextBlockType;
+  sort_order: number;
+  layout_x: number | null;
+  layout_y: number | null;
+  layout_w: number | null;
+}
+
+type MenuSection =
+  | { kind: "category"; data: Category; sort_order: number }
+  | { kind: "block"; data: TextBlock; sort_order: number };
 
 type MenuStyle =
   | "elegant"
@@ -50,7 +73,7 @@ type MenuStyle =
   | "cafeteria"
   | "rustico"
   | "bistro";
-type LayoutMode = "single" | "two-col" | "three-col";
+type LayoutMode = "single" | "two-col" | "three-col" | "lista";
 
 function formatPrice(price: number) {
   return new Intl.NumberFormat("es-CO", {
@@ -264,6 +287,27 @@ const STYLE_CONFIG: Record<MenuStyle, {
   },
 };
 
+function brandVars(primary: string, secondary: string): Record<string, string> {
+  return {
+    "--brand-primary": primary,
+    "--brand-secondary": secondary,
+  };
+}
+
+function withBrandColors<T extends { accent: string; accentText: string; border: string; specialBg: string; specialBorder: string; categoryTitleClass?: string; categoryBoxed?: boolean }>(cfg: T): T {
+  return {
+    ...cfg,
+    accent: "text-[color:var(--brand-primary)]",
+    accentText: "text-[color:var(--brand-primary)]",
+    border: "border-[color:var(--brand-primary)]",
+    specialBg: "bg-[color:var(--brand-secondary)]",
+    specialBorder: "border-[color:var(--brand-primary)]",
+    categoryTitleClass: cfg.categoryBoxed
+      ? "inline-block px-6 py-2 bg-[color:var(--brand-primary)] text-white text-[14px] font-bold tracking-[0.3em] uppercase"
+      : cfg.categoryTitleClass,
+  };
+}
+
 function HeaderDecoration({ type, accent }: { type?: string; accent: string }) {
   switch (type) {
     case "lines":
@@ -470,31 +514,203 @@ function Editable({
   );
 }
 
+type StyleCfg = (typeof STYLE_CONFIG)[keyof typeof STYLE_CONFIG];
+
+function TextBlockView({
+  block,
+  cfg,
+  editMode,
+  onDragStart,
+  onContent,
+  onType,
+  onDelete,
+}: {
+  block: TextBlock;
+  cfg: StyleCfg;
+  editMode: boolean;
+  onDragStart?: () => void;
+  onContent: (v: string) => void;
+  onType: (t: TextBlockType) => void;
+  onDelete: () => void;
+}) {
+  const baseClass =
+    block.block_type === "heading"
+      ? `text-center mb-10 print:mb-6 text-[26px] font-semibold tracking-[0.08em] uppercase ${cfg.accent}`
+      : block.block_type === "footer"
+      ? `text-center mb-10 print:mb-6 text-[11px] tracking-[0.2em] uppercase ${cfg.muted} opacity-70`
+      : `mb-10 print:mb-6 text-[14px] leading-relaxed text-center max-w-2xl mx-auto ${cfg.muted}`;
+  return (
+    <div className={`relative group ${editMode ? "rounded-[10px] p-2 hover:bg-black/[0.03]" : ""}`}>
+      {editMode && (
+        <span
+          draggable
+          onDragStart={(e) => {
+            onDragStart?.();
+            e.dataTransfer.effectAllowed = "move";
+          }}
+          className={`absolute left-1 top-1/2 -translate-y-1/2 ${cfg.muted} bg-white/90 rounded-md p-1 shadow-sm cursor-grab active:cursor-grabbing print:hidden opacity-0 group-hover:opacity-100 transition-opacity`}
+          title="Arrastra para reordenar"
+        >
+          <GripVertical className="w-3.5 h-3.5" />
+        </span>
+      )}
+      <Editable
+        as="p"
+        value={block.content}
+        editable={editMode}
+        multiline={block.block_type !== "heading"}
+        placeholder={editMode ? "Escribe el texto…" : ""}
+        onSave={onContent}
+        className={baseClass}
+      />
+      {editMode && (
+        <div className="absolute top-1 right-1 flex gap-1 bg-white/90 rounded-md p-0.5 shadow-sm print:hidden opacity-0 group-hover:opacity-100 transition-opacity">
+          <select
+            value={block.block_type}
+            onChange={(e) => onType(e.target.value as TextBlockType)}
+            className="text-[10px] bg-transparent text-text-secondary rounded px-1 py-0.5 focus:outline-none"
+            title="Tipo de bloque"
+          >
+            <option value="heading">Título</option>
+            <option value="paragraph">Párrafo</option>
+            <option value="footer">Pie</option>
+          </select>
+          <button
+            onClick={onDelete}
+            className="p-1 rounded text-error hover:bg-error/10"
+            title="Eliminar bloque"
+          >
+            <XIcon className="w-3 h-3" />
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AddBlockSlot({ onAdd }: { onAdd: (type: TextBlockType) => void }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="relative flex justify-center py-1 print:hidden">
+      {open ? (
+        <div className="flex gap-1 bg-white shadow-md rounded-full border border-border-light p-1 z-10">
+          <button
+            onClick={() => {
+              onAdd("heading");
+              setOpen(false);
+            }}
+            className="text-[11px] px-3 py-1 rounded-full hover:bg-bg-warm"
+          >
+            + Título
+          </button>
+          <button
+            onClick={() => {
+              onAdd("paragraph");
+              setOpen(false);
+            }}
+            className="text-[11px] px-3 py-1 rounded-full hover:bg-bg-warm"
+          >
+            + Párrafo
+          </button>
+          <button
+            onClick={() => {
+              onAdd("footer");
+              setOpen(false);
+            }}
+            className="text-[11px] px-3 py-1 rounded-full hover:bg-bg-warm"
+          >
+            + Pie
+          </button>
+          <button
+            onClick={() => setOpen(false)}
+            className="text-[11px] px-2 py-1 rounded-full hover:bg-bg-warm text-text-muted"
+            aria-label="Cerrar"
+          >
+            ×
+          </button>
+        </div>
+      ) : (
+        <button
+          onClick={() => setOpen(true)}
+          className="text-[11px] text-text-muted hover:text-primary px-3 py-1 rounded-full border border-dashed border-border-light hover:border-primary/40 bg-white/60 transition-colors"
+        >
+          + Añadir texto
+        </button>
+      )}
+    </div>
+  );
+}
+
 export default function MenuPreviewPage() {
   const supabase = createClient();
   const { user } = useSession();
   const { restaurant } = useRestaurant(user?.id);
   const [categories, setCategories] = useState<Category[]>([]);
+  const [textBlocks, setTextBlocks] = useState<TextBlock[]>([]);
   const [style, setStyle] = useState<MenuStyle>("elegant");
   const [layout, setLayout] = useState<LayoutMode>("single");
   const [showImages, setShowImages] = useState(true);
   const [editMode, setEditMode] = useState(false);
+  const [useBrandColors, setUseBrandColors] = useState(false);
+  const [freeMode, setFreeMode] = useState(false);
+  const freeDragRef = useRef<
+    | {
+        kind: "category" | "block";
+        id: string;
+        startX: number;
+        startY: number;
+        origX: number;
+        origY: number;
+      }
+    | null
+  >(null);
   const [fontScale, setFontScale] = useState(1);
   const [uploadTarget, setUploadTarget] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const dragItem = useRef<{ categoryId: string; itemId: string } | null>(null);
-  const dragCategory = useRef<string | null>(null);
+  const dragSection = useRef<{ kind: "category" | "block"; id: string } | null>(null);
 
   const loadMenu = useCallback(async () => {
     if (!restaurant) return;
-    const { data } = await supabase
-      .from("menu_categories")
-      .select(
-        "id, name, sort_order, menu_items(id, name, description, price, image_url, is_available, is_daily_special, sort_order)"
-      )
-      .eq("restaurant_id", restaurant.id)
-      .eq("is_active", true)
-      .order("sort_order");
+    const [{ data }, { data: blocksData }] = await Promise.all([
+      supabase
+        .from("menu_categories")
+        .select(
+          "id, name, sort_order, font_scale, layout_x, layout_y, layout_w, menu_items(id, name, description, price, image_url, is_available, is_daily_special, sort_order)"
+        )
+        .eq("restaurant_id", restaurant.id)
+        .eq("is_active", true)
+        .order("sort_order"),
+      supabase
+        .from("menu_text_blocks")
+        .select("id, content, block_type, sort_order, layout_x, layout_y, layout_w")
+        .eq("restaurant_id", restaurant.id)
+        .eq("is_active", true)
+        .order("sort_order"),
+    ]);
+
+    type RawBlock = {
+      id: string;
+      content: string | null;
+      block_type: TextBlockType | null;
+      sort_order: number | null;
+      layout_x: number | string | null;
+      layout_y: number | string | null;
+      layout_w: number | string | null;
+    };
+    const toNum = (v: number | string | null | undefined) =>
+      v == null ? null : typeof v === "number" ? v : Number.isFinite(Number(v)) ? Number(v) : null;
+    setTextBlocks(
+      ((blocksData ?? []) as unknown as RawBlock[]).map<TextBlock>((b) => ({
+        id: b.id,
+        content: b.content ?? "",
+        block_type: (b.block_type ?? "paragraph") as TextBlockType,
+        sort_order: b.sort_order ?? 0,
+        layout_x: toNum(b.layout_x),
+        layout_y: toNum(b.layout_y),
+        layout_w: toNum(b.layout_w),
+      }))
+    );
 
     type RawItem = {
       id: string;
@@ -510,6 +726,10 @@ export default function MenuPreviewPage() {
       id: string;
       name: string;
       sort_order: number | null;
+      font_scale: number | string | null;
+      layout_x: number | string | null;
+      layout_y: number | string | null;
+      layout_w: number | string | null;
       menu_items: RawItem[] | null;
     };
     setCategories(
@@ -518,6 +738,11 @@ export default function MenuPreviewPage() {
           id: c.id,
           name: c.name,
           sort_order: c.sort_order ?? 0,
+          font_scale:
+            c.font_scale == null ? 1 : Number(c.font_scale) || 1,
+          layout_x: toNum(c.layout_x),
+          layout_y: toNum(c.layout_y),
+          layout_w: toNum(c.layout_w),
           items: (c.menu_items ?? [])
             .filter((i) => i.is_available)
             .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
@@ -573,6 +798,14 @@ export default function MenuPreviewPage() {
     if (!name) return;
     setCategories((prev) => prev.map((c) => (c.id === categoryId ? { ...c, name } : c)));
     await supabase.from("menu_categories").update({ name }).eq("id", categoryId);
+  }
+
+  async function saveCategoryFontScale(categoryId: string, scale: number) {
+    const next = Math.max(0.6, Math.min(2, +scale.toFixed(2)));
+    setCategories((prev) =>
+      prev.map((c) => (c.id === categoryId ? { ...c, font_scale: next } : c))
+    );
+    await supabase.from("menu_categories").update({ font_scale: next }).eq("id", categoryId);
   }
 
   function triggerImageUpload(itemId: string) {
@@ -638,25 +871,242 @@ export default function MenuPreviewPage() {
     );
   }
 
-  async function reorderCategories(fromId: string, toId: string) {
-    if (fromId === toId) return;
-    const fromIdx = categories.findIndex((c) => c.id === fromId);
-    const toIdx = categories.findIndex((c) => c.id === toId);
+  async function saveSectionLayout(
+    kind: "category" | "block",
+    id: string,
+    x: number,
+    y: number
+  ) {
+    const table = kind === "category" ? "menu_categories" : "menu_text_blocks";
+    await supabase.from(table).update({ layout_x: x, layout_y: y }).eq("id", id);
+  }
+
+  function startFreeDrag(
+    e: React.MouseEvent,
+    kind: "category" | "block",
+    id: string,
+    origX: number,
+    origY: number
+  ) {
+    e.preventDefault();
+    e.stopPropagation();
+    freeDragRef.current = {
+      kind,
+      id,
+      startX: e.clientX,
+      startY: e.clientY,
+      origX,
+      origY,
+    };
+    const handleMove = (ev: MouseEvent) => {
+      const d = freeDragRef.current;
+      if (!d) return;
+      const nextX = Math.max(0, d.origX + ev.clientX - d.startX);
+      const nextY = Math.max(0, d.origY + ev.clientY - d.startY);
+      if (d.kind === "category") {
+        setCategories((prev) =>
+          prev.map((c) => (c.id === d.id ? { ...c, layout_x: nextX, layout_y: nextY } : c))
+        );
+      } else {
+        setTextBlocks((prev) =>
+          prev.map((b) => (b.id === d.id ? { ...b, layout_x: nextX, layout_y: nextY } : b))
+        );
+      }
+    };
+    const handleUp = (ev: MouseEvent) => {
+      const d = freeDragRef.current;
+      document.removeEventListener("mousemove", handleMove);
+      document.removeEventListener("mouseup", handleUp);
+      if (!d) return;
+      const finalX = Math.max(0, d.origX + ev.clientX - d.startX);
+      const finalY = Math.max(0, d.origY + ev.clientY - d.startY);
+      freeDragRef.current = null;
+      saveSectionLayout(d.kind, d.id, finalX, finalY);
+    };
+    document.addEventListener("mousemove", handleMove);
+    document.addEventListener("mouseup", handleUp);
+  }
+
+  async function reorderSections(
+    from: { kind: "category" | "block"; id: string },
+    to: { kind: "category" | "block"; id: string }
+  ) {
+    if (from.kind === to.kind && from.id === to.id) return;
+    const merged = [
+      ...categories.map((c) => ({ kind: "category" as const, id: c.id, sort_order: c.sort_order })),
+      ...textBlocks.map((b) => ({ kind: "block" as const, id: b.id, sort_order: b.sort_order })),
+    ].sort((a, b) => a.sort_order - b.sort_order);
+    const fromIdx = merged.findIndex((s) => s.kind === from.kind && s.id === from.id);
+    const toIdx = merged.findIndex((s) => s.kind === to.kind && s.id === to.id);
     if (fromIdx < 0 || toIdx < 0) return;
-    const next = [...categories];
-    const [moved] = next.splice(fromIdx, 1);
-    next.splice(toIdx, 0, moved);
-    const withOrder = next.map((c, idx) => ({ ...c, sort_order: idx }));
-    setCategories(withOrder);
+    const reordered = [...merged];
+    const [moved] = reordered.splice(fromIdx, 1);
+    reordered.splice(toIdx, 0, moved);
+    const orderMap = new Map<string, number>();
+    reordered.forEach((s, idx) => orderMap.set(`${s.kind}:${s.id}`, idx));
+
+    setCategories((prev) =>
+      prev.map((c) => ({ ...c, sort_order: orderMap.get(`category:${c.id}`) ?? c.sort_order }))
+    );
+    setTextBlocks((prev) =>
+      prev.map((b) => ({ ...b, sort_order: orderMap.get(`block:${b.id}`) ?? b.sort_order }))
+    );
+
     await Promise.all(
-      withOrder.map((c) =>
-        supabase.from("menu_categories").update({ sort_order: c.sort_order }).eq("id", c.id)
-      )
+      reordered.map((s) => {
+        const next = orderMap.get(`${s.kind}:${s.id}`) ?? 0;
+        return s.kind === "category"
+          ? supabase.from("menu_categories").update({ sort_order: next }).eq("id", s.id)
+          : supabase.from("menu_text_blocks").update({ sort_order: next }).eq("id", s.id);
+      })
     );
   }
 
-  const cfg = STYLE_CONFIG[style];
+  async function createTextBlockAt(afterIndex: number, type: TextBlockType) {
+    if (!restaurant) return;
+    const allSorted = [
+      ...categories.map((c) => ({ kind: "category" as const, id: c.id, sort_order: c.sort_order })),
+      ...textBlocks.map((b) => ({ kind: "block" as const, id: b.id, sort_order: b.sort_order })),
+    ].sort((a, b) => a.sort_order - b.sort_order);
+    const before = allSorted[afterIndex];
+    const beforeOrder = before ? before.sort_order : -1;
+    const afterOrder = allSorted[afterIndex + 1]?.sort_order ?? beforeOrder + 2;
+    const gap = afterOrder - beforeOrder;
+    const newOrder = gap > 1 ? beforeOrder + Math.floor(gap / 2) : beforeOrder + 1;
+    const needsResequence = gap <= 1;
+
+    const defaultContent =
+      type === "heading"
+        ? "Nueva sección"
+        : type === "footer"
+        ? "Notas finales"
+        : "Escribe un párrafo…";
+    const { data: inserted } = await supabase
+      .from("menu_text_blocks")
+      .insert({
+        restaurant_id: restaurant.id,
+        content: defaultContent,
+        block_type: type,
+        sort_order: newOrder,
+      })
+      .select("id, content, block_type, sort_order")
+      .single();
+    if (!inserted) return;
+    const newBlock: TextBlock = {
+      id: inserted.id,
+      content: inserted.content ?? defaultContent,
+      block_type: (inserted.block_type ?? type) as TextBlockType,
+      sort_order: inserted.sort_order ?? newOrder,
+      layout_x: null,
+      layout_y: null,
+      layout_w: null,
+    };
+    if (!needsResequence) {
+      setTextBlocks((prev) => [...prev, newBlock]);
+      return;
+    }
+
+    // Resequence everything: build unified order with the new block at
+    // insertionIndex, then flush to state + DB in one pass.
+    const working = [
+      ...categories.map((c) => ({ kind: "category" as const, id: c.id, sort_order: c.sort_order })),
+      ...textBlocks.map((b) => ({ kind: "block" as const, id: b.id, sort_order: b.sort_order })),
+    ].sort((a, b) => a.sort_order - b.sort_order);
+    const insertionIndex = afterIndex + 1;
+    const rebuilt = [
+      ...working.slice(0, insertionIndex),
+      { kind: "block" as const, id: newBlock.id, sort_order: 0 },
+      ...working.slice(insertionIndex),
+    ];
+    const orderMap = new Map<string, number>();
+    rebuilt.forEach((s, idx) => orderMap.set(`${s.kind}:${s.id}`, idx));
+
+    setCategories((prev) =>
+      prev.map((c) => ({ ...c, sort_order: orderMap.get(`category:${c.id}`) ?? c.sort_order }))
+    );
+    setTextBlocks((prev) => [
+      ...prev.map((b) => ({ ...b, sort_order: orderMap.get(`block:${b.id}`) ?? b.sort_order })),
+      { ...newBlock, sort_order: orderMap.get(`block:${newBlock.id}`) ?? newBlock.sort_order },
+    ]);
+
+    await Promise.all(
+      rebuilt.map((s) => {
+        const next = orderMap.get(`${s.kind}:${s.id}`) ?? 0;
+        return s.kind === "category"
+          ? supabase.from("menu_categories").update({ sort_order: next }).eq("id", s.id)
+          : supabase.from("menu_text_blocks").update({ sort_order: next }).eq("id", s.id);
+      })
+    );
+  }
+
+  async function saveTextBlockContent(blockId: string, content: string) {
+    const next = content.trim();
+    setTextBlocks((prev) => prev.map((b) => (b.id === blockId ? { ...b, content: next } : b)));
+    await supabase.from("menu_text_blocks").update({ content: next }).eq("id", blockId);
+  }
+
+  async function saveTextBlockType(blockId: string, type: TextBlockType) {
+    setTextBlocks((prev) =>
+      prev.map((b) => (b.id === blockId ? { ...b, block_type: type } : b))
+    );
+    await supabase.from("menu_text_blocks").update({ block_type: type }).eq("id", blockId);
+  }
+
+  async function deleteTextBlock(blockId: string) {
+    setTextBlocks((prev) => prev.filter((b) => b.id !== blockId));
+    await supabase.from("menu_text_blocks").update({ is_active: false }).eq("id", blockId);
+  }
+
+  const baseCfg = STYLE_CONFIG[style];
+  const cfg = useBrandColors ? withBrandColors(baseCfg) : baseCfg;
+  const cssVars = useBrandColors
+    ? brandVars(
+        restaurant?.primary_color ?? "#a855f7",
+        restaurant?.secondary_color ?? "#f472b6"
+      )
+    : null;
   const specials = categories.flatMap((c) => c.items.filter((i) => i.is_daily_special));
+
+  const sections = useMemo<MenuSection[]>(
+    () =>
+      [
+        ...categories.map<MenuSection>((c) => ({
+          kind: "category",
+          data: c,
+          sort_order: c.sort_order,
+        })),
+        ...textBlocks.map<MenuSection>((b) => ({
+          kind: "block",
+          data: b,
+          sort_order: b.sort_order,
+        })),
+      ].sort((a, b) => a.sort_order - b.sort_order),
+    [categories, textBlocks]
+  );
+
+  // In free mode, fall back to auto-computed coords when layout_x/y are null.
+  // Default layout: single column of 550px-wide cards stacked with 420px vertical spacing,
+  // ordered by sort_order.
+  const FREE_DEFAULT_W = 550;
+  const FREE_DEFAULT_STRIDE = 420;
+  const freeCoords = useMemo(() => {
+    const map = new Map<string, { x: number; y: number; w: number }>();
+    sections.forEach((s, idx) => {
+      const x = s.data.layout_x ?? 40;
+      const y = s.data.layout_y ?? idx * FREE_DEFAULT_STRIDE;
+      const w = s.data.layout_w ?? FREE_DEFAULT_W;
+      map.set(`${s.kind}:${s.data.id}`, { x, y, w });
+    });
+    return map;
+  }, [sections]);
+
+  const canvasHeight = useMemo(() => {
+    let max = 600;
+    freeCoords.forEach(({ y }) => {
+      if (y + FREE_DEFAULT_STRIDE > max) max = y + FREE_DEFAULT_STRIDE;
+    });
+    return max;
+  }, [freeCoords]);
 
   const gridClass =
     layout === "three-col"
@@ -701,6 +1151,13 @@ export default function MenuPreviewPage() {
               >
                 <Columns3 className="w-4 h-4" />
               </button>
+              <button
+                onClick={() => setLayout("lista")}
+                className={`p-1.5 rounded-[8px] transition-all ${layout === "lista" ? "bg-white shadow-sm text-text-primary" : "text-text-muted hover:text-text-secondary"}`}
+                title="Lista (sin imágenes)"
+              >
+                <AlignJustify className="w-4 h-4" />
+              </button>
             </div>
             {/* Images toggle */}
             <button
@@ -709,6 +1166,22 @@ export default function MenuPreviewPage() {
               title={showImages ? "Ocultar imágenes" : "Mostrar imágenes"}
             >
               {showImages ? <ImageIcon className="w-4 h-4" /> : <ImageOff className="w-4 h-4" />}
+            </button>
+            {/* Free layout toggle */}
+            <button
+              onClick={() => setFreeMode((v) => !v)}
+              className={`p-1.5 rounded-[8px] transition-all ${freeMode ? "bg-primary/10 text-primary" : "bg-bg-warm text-text-muted"}`}
+              title={freeMode ? "Salir del modo libre" : "Posicionamiento libre (canvas)"}
+            >
+              <Move className="w-4 h-4" />
+            </button>
+            {/* Brand colors toggle */}
+            <button
+              onClick={() => setUseBrandColors((v) => !v)}
+              className={`p-1.5 rounded-[8px] transition-all ${useBrandColors ? "bg-primary/10 text-primary" : "bg-bg-warm text-text-muted"}`}
+              title={useBrandColors ? "Usando colores de marca" : "Aplicar colores de marca (settings)"}
+            >
+              <Palette className="w-4 h-4" />
             </button>
             {/* Edit mode toggle */}
             <button
@@ -800,9 +1273,10 @@ export default function MenuPreviewPage() {
                   "radial-gradient(circle at 20% 30%, rgba(139,106,64,0.06) 0px, transparent 40%), radial-gradient(circle at 80% 70%, rgba(139,106,64,0.05) 0px, transparent 45%), radial-gradient(circle at 50% 90%, rgba(29,58,74,0.04) 0px, transparent 35%)",
               }
             : {}),
-        }}
+          ...(cssVars ?? {}),
+        } as CSSProperties}
       >
-        <div className={`mx-auto px-8 py-16 print:py-8 ${layout === "three-col" ? "max-w-5xl" : layout === "two-col" ? "max-w-4xl" : "max-w-3xl"}`}>
+        <div className={`mx-auto px-8 py-16 print:py-8 ${layout === "three-col" ? "max-w-5xl" : layout === "two-col" || layout === "lista" ? "max-w-4xl" : "max-w-3xl"}`}>
           {/* Header */}
           <header className="text-center mb-16 print:mb-10">
             <HeaderDecoration type={cfg.headerDecoration} accent={cfg.accent} />
@@ -831,10 +1305,10 @@ export default function MenuPreviewPage() {
                 </p>
               </div>
               <div className={`rounded-[12px] p-6 border ${cfg.specialBorder} ${cfg.specialBg}`}>
-                {layout === "single" ? (
+                {layout === "single" || layout === "lista" ? (
                   specials.map((item) => (
                     <div key={item.id} className="flex items-center gap-4 py-3">
-                      {showImages && (
+                      {showImages && layout !== "lista" && (
                         <ItemImage
                           item={item}
                           categoryName=""
@@ -876,37 +1350,159 @@ export default function MenuPreviewPage() {
             </section>
           )}
 
-          {/* Categories */}
-          {categories.map((category) => (
+          {/* Sections (categories + text blocks) */}
+          <div
+            className={freeMode ? "relative mx-auto" : ""}
+            style={
+              freeMode
+                ? {
+                    minHeight: `${canvasHeight}px`,
+                    width: `${Math.max(
+                      FREE_DEFAULT_W + 80,
+                      ...Array.from(freeCoords.values()).map((c) => c.x + c.w + 40)
+                    )}px`,
+                    maxWidth: "100%",
+                    backgroundImage: editMode
+                      ? "linear-gradient(0deg, rgba(0,0,0,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(0,0,0,0.03) 1px, transparent 1px)"
+                      : undefined,
+                    backgroundSize: editMode ? "40px 40px" : undefined,
+                  }
+                : undefined
+            }
+          >
+          {sections.map((section, sectionIndex) => {
+            const sectionKey = `${section.kind}:${section.data.id}`;
+            const addSlot =
+              editMode && !freeMode ? (
+                <AddBlockSlot
+                  key={`add-${sectionKey}`}
+                  onAdd={(t) => createTextBlockAt(sectionIndex - 1, t)}
+                />
+              ) : null;
+            const freePos = freeCoords.get(sectionKey);
+            const freeWrapStyle: CSSProperties | undefined = freeMode
+              ? {
+                  position: "absolute",
+                  left: `${freePos?.x ?? 40}px`,
+                  top: `${freePos?.y ?? 0}px`,
+                  width: `${freePos?.w ?? FREE_DEFAULT_W}px`,
+                }
+              : undefined;
+            if (section.kind === "block") {
+              const block = section.data;
+              return (
+                <div key={sectionKey} style={freeWrapStyle}>
+                  {addSlot}
+                  {freeMode && editMode && (
+                    <button
+                      onMouseDown={(e) =>
+                        startFreeDrag(e, "block", block.id, freePos?.x ?? 40, freePos?.y ?? 0)
+                      }
+                      className={`absolute -top-3 left-1/2 -translate-x-1/2 ${cfg.muted} bg-white rounded-full px-2 py-1 shadow-sm border border-border-light cursor-grab active:cursor-grabbing print:hidden z-10 text-[10px] flex items-center gap-1`}
+                      title="Mover (arrastrar)"
+                    >
+                      <Move className="w-3 h-3" /> Mover
+                    </button>
+                  )}
+                  <div
+                    onDragOver={(e) => {
+                      if (editMode && !freeMode && dragSection.current) e.preventDefault();
+                    }}
+                    onDrop={(e) => {
+                      if (!editMode || freeMode) return;
+                      const d = dragSection.current;
+                      if (d && !(d.kind === "block" && d.id === block.id)) {
+                        e.preventDefault();
+                        reorderSections(d, { kind: "block", id: block.id });
+                      }
+                      dragSection.current = null;
+                    }}
+                  >
+                    <TextBlockView
+                      block={block}
+                      cfg={cfg}
+                      editMode={editMode && !freeMode}
+                      onDragStart={() => {
+                        dragSection.current = { kind: "block", id: block.id };
+                      }}
+                      onContent={(v) => saveTextBlockContent(block.id, v)}
+                      onType={(t) => saveTextBlockType(block.id, t)}
+                      onDelete={() => deleteTextBlock(block.id)}
+                    />
+                  </div>
+                </div>
+              );
+            }
+            const category = section.data;
+            return (
+              <div key={sectionKey} style={freeWrapStyle}>
+                {addSlot}
+                {freeMode && editMode && (
+                  <button
+                    onMouseDown={(e) =>
+                      startFreeDrag(e, "category", category.id, freePos?.x ?? 40, freePos?.y ?? 0)
+                    }
+                    className={`absolute -top-3 left-1/2 -translate-x-1/2 ${cfg.muted} bg-white rounded-full px-2 py-1 shadow-sm border border-border-light cursor-grab active:cursor-grabbing print:hidden z-10 text-[10px] flex items-center gap-1`}
+                    title="Mover (arrastrar)"
+                  >
+                    <Move className="w-3 h-3" /> Mover
+                  </button>
+                )}
             <section
-              key={category.id}
               className={`mb-14 print:mb-8 ${editMode ? "relative rounded-[12px]" : ""}`}
               onDragOver={(e) => {
-                if (editMode && dragCategory.current) e.preventDefault();
+                if (editMode && !freeMode && dragSection.current) e.preventDefault();
               }}
               onDrop={(e) => {
-                if (!editMode) return;
-                if (dragCategory.current && dragCategory.current !== category.id) {
+                if (!editMode || freeMode) return;
+                const d = dragSection.current;
+                if (d && !(d.kind === "category" && d.id === category.id)) {
                   e.preventDefault();
-                  reorderCategories(dragCategory.current, category.id);
+                  reorderSections(d, { kind: "category", id: category.id });
                 }
-                dragCategory.current = null;
+                dragSection.current = null;
               }}
             >
               {/* Category title */}
               <div className="text-center mb-8 relative">
                 {editMode && (
-                  <span
-                    draggable
-                    onDragStart={(e) => {
-                      dragCategory.current = category.id;
-                      e.dataTransfer.effectAllowed = "move";
-                    }}
-                    className={`absolute left-0 top-1/2 -translate-y-1/2 ${cfg.muted} bg-white/90 rounded-md p-1 shadow-sm opacity-90 cursor-grab active:cursor-grabbing`}
-                    title="Arrastra para reordenar categoría"
-                  >
-                    <GripVertical className="w-4 h-4" />
-                  </span>
+                  <>
+                    <span
+                      draggable
+                      onDragStart={(e) => {
+                        dragSection.current = { kind: "category", id: category.id };
+                        e.dataTransfer.effectAllowed = "move";
+                      }}
+                      className={`absolute left-0 top-1/2 -translate-y-1/2 ${cfg.muted} bg-white/90 rounded-md p-1 shadow-sm opacity-90 cursor-grab active:cursor-grabbing print:hidden`}
+                      title="Arrastra para reordenar categoría"
+                    >
+                      <GripVertical className="w-4 h-4" />
+                    </span>
+                    <div
+                      className="absolute right-0 top-1/2 -translate-y-1/2 flex items-center gap-0.5 bg-white/90 rounded-md p-0.5 shadow-sm print:hidden"
+                      title="Tamaño de letra de la sección"
+                    >
+                      <button
+                        onClick={() =>
+                          saveCategoryFontScale(category.id, category.font_scale - 0.1)
+                        }
+                        className="px-1.5 py-0.5 rounded text-[11px] font-semibold text-text-secondary hover:bg-bg-warm"
+                      >
+                        A−
+                      </button>
+                      <span className="text-[10px] text-text-muted w-8 text-center tabular-nums">
+                        {Math.round(category.font_scale * 100)}%
+                      </span>
+                      <button
+                        onClick={() =>
+                          saveCategoryFontScale(category.id, category.font_scale + 0.1)
+                        }
+                        className="px-1.5 py-0.5 rounded text-[11px] font-semibold text-text-secondary hover:bg-bg-warm"
+                      >
+                        A+
+                      </button>
+                    </div>
+                  </>
                 )}
                 <Editable
                   as="h2"
@@ -929,8 +1525,83 @@ export default function MenuPreviewPage() {
                 )}
               </div>
 
+              {/* Items wrapper with per-category scale */}
+              <div style={category.font_scale !== 1 ? { zoom: category.font_scale } : undefined}>
+
               {/* Items */}
-              {layout === "single" ? (
+              {layout === "lista" ? (
+                <div className="columns-2 gap-10 [column-rule:1px_solid] [column-rule-color:currentColor]/10">
+                  {category.items.map((item) => (
+                    <div
+                      key={item.id}
+                      className={`break-inside-avoid mb-3 relative ${editMode ? "rounded-[8px] p-1.5 -m-1.5 hover:bg-black/[0.03]" : ""}`}
+                      onDragOver={(e) => {
+                        if (
+                          editMode &&
+                          dragItem.current &&
+                          dragItem.current.categoryId === category.id
+                        )
+                          e.preventDefault();
+                      }}
+                      onDrop={(e) => {
+                        if (!editMode) return;
+                        const d = dragItem.current;
+                        if (d && d.categoryId === category.id && d.itemId !== item.id) {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          reorderItems(category.id, d.itemId, item.id);
+                        }
+                        dragItem.current = null;
+                      }}
+                    >
+                      {editMode && (
+                        <span
+                          draggable
+                          onDragStart={(e) => {
+                            dragItem.current = { categoryId: category.id, itemId: item.id };
+                            e.dataTransfer.effectAllowed = "move";
+                            e.stopPropagation();
+                          }}
+                          className={`absolute -left-5 top-1 ${cfg.muted} bg-white/90 rounded p-0.5 shadow-sm cursor-grab active:cursor-grabbing print:hidden`}
+                          title="Arrastra para reordenar"
+                        >
+                          <GripVertical className="w-3 h-3" />
+                        </span>
+                      )}
+                      <div className="flex items-baseline gap-2">
+                        <Editable
+                          as="span"
+                          value={item.name}
+                          editable={editMode}
+                          onSave={(v) => saveItemField(item.id, "name", v)}
+                          className={`text-[14px] font-medium ${cfg.text}`}
+                        />
+                        <span className={`flex-1 border-b border-dotted ${cfg.border} opacity-40`} />
+                        <span className={`text-[13px] font-medium whitespace-nowrap ${cfg.accentText}`}>
+                          $
+                          <Editable
+                            as="span"
+                            value={formatPrice(item.price)}
+                            editable={editMode}
+                            onSave={(v) => saveItemField(item.id, "price", v)}
+                          />
+                        </span>
+                      </div>
+                      {(item.description || editMode) && (
+                        <Editable
+                          as="p"
+                          value={item.description ?? ""}
+                          editable={editMode}
+                          multiline
+                          placeholder={editMode ? "Añadir descripción…" : ""}
+                          onSave={(v) => saveItemField(item.id, "description", v)}
+                          className={`mt-0.5 text-[11px] leading-snug ${cfg.muted}`}
+                        />
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ) : layout === "single" ? (
                 <div className="space-y-5">
                   {category.items.map((item) => (
                     <div
@@ -1010,7 +1681,7 @@ export default function MenuPreviewPage() {
                         <span className={`flex-1 border-b border-dotted ${cfg.border} opacity-30`} />
                         {cfg.priceBadge ? (
                           <span
-                            className={`inline-flex items-center justify-center min-w-[56px] h-[56px] rounded-full text-[16px] font-bold whitespace-nowrap px-3 bg-[#1d3a4a] ${cfg.accentText}`}
+                            className={`inline-flex items-center justify-center min-w-[56px] h-[56px] rounded-full text-[16px] font-bold whitespace-nowrap px-3 ${useBrandColors ? "bg-[color:var(--brand-primary)]" : "bg-[#1d3a4a]"} text-white`}
                           >
                             <Editable
                               as="span"
@@ -1115,7 +1786,7 @@ export default function MenuPreviewPage() {
                           )}
                           {cfg.priceBadge && (
                             <span
-                              className={`absolute bottom-2 right-2 inline-flex items-center justify-center min-w-[50px] h-[50px] rounded-full text-[14px] font-bold px-2 bg-[#1d3a4a] text-white shadow-md`}
+                              className={`absolute bottom-2 right-2 inline-flex items-center justify-center min-w-[50px] h-[50px] rounded-full text-[14px] font-bold px-2 ${useBrandColors ? "bg-[color:var(--brand-primary)]" : "bg-[#1d3a4a]"} text-white shadow-md`}
                             >
                               <Editable
                                 as="span"
@@ -1163,8 +1834,15 @@ export default function MenuPreviewPage() {
                   ))}
                 </div>
               )}
+              </div>
             </section>
-          ))}
+              </div>
+            );
+          })}
+          {editMode && !freeMode && (
+            <AddBlockSlot onAdd={(t) => createTextBlockAt(sections.length - 1, t)} />
+          )}
+          </div>
 
           {/* Footer */}
           <footer className="mt-16 pt-8 text-center print:mt-8">

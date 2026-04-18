@@ -289,6 +289,179 @@ DO $$ BEGIN
     CREATE POLICY public_update_sessions ON client_sessions FOR UPDATE USING (true);
   END IF;
 END $$;
+
+-- ============================================
+-- V5: Menu — per-category font scale
+-- ============================================
+ALTER TABLE menu_categories ADD COLUMN IF NOT EXISTS font_scale NUMERIC(3,2) DEFAULT 1.0;
+
+-- ============================================
+-- V6: Menu text blocks — headings/paragraphs/footers between categories
+-- ============================================
+CREATE TABLE IF NOT EXISTS menu_text_blocks (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  restaurant_id UUID NOT NULL REFERENCES restaurants(id) ON DELETE CASCADE,
+  content TEXT NOT NULL DEFAULT '',
+  block_type TEXT NOT NULL DEFAULT 'paragraph' CHECK (block_type IN ('heading','paragraph','footer')),
+  sort_order INT DEFAULT 0,
+  is_active BOOLEAN DEFAULT true,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_menu_text_blocks_restaurant ON menu_text_blocks(restaurant_id);
+ALTER TABLE menu_text_blocks ENABLE ROW LEVEL SECURITY;
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'owner_all_menu_text_blocks') THEN
+    CREATE POLICY owner_all_menu_text_blocks ON menu_text_blocks FOR ALL USING (restaurant_id IN (SELECT id FROM restaurants WHERE owner_id = auth.uid()));
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'public_read_menu_text_blocks') THEN
+    CREATE POLICY public_read_menu_text_blocks ON menu_text_blocks FOR SELECT USING (is_active = true);
+  END IF;
+END $$;
+
+-- ============================================
+-- V7: Restaurant floors — persist floor list independent of tables
+-- ============================================
+CREATE TABLE IF NOT EXISTS restaurant_floors (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  restaurant_id UUID NOT NULL REFERENCES restaurants(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  sort_order INT DEFAULT 0,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  UNIQUE(restaurant_id, name)
+);
+CREATE INDEX IF NOT EXISTS idx_restaurant_floors_restaurant ON restaurant_floors(restaurant_id);
+ALTER TABLE restaurant_floors ENABLE ROW LEVEL SECURITY;
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'owner_all_restaurant_floors') THEN
+    CREATE POLICY owner_all_restaurant_floors ON restaurant_floors FOR ALL USING (restaurant_id IN (SELECT id FROM restaurants WHERE owner_id = auth.uid()));
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'public_read_restaurant_floors') THEN
+    CREATE POLICY public_read_restaurant_floors ON restaurant_floors FOR SELECT USING (true);
+  END IF;
+END $$;
+
+-- Seed existing distinct floor values from tables so data isn't lost
+INSERT INTO restaurant_floors (restaurant_id, name, sort_order)
+SELECT DISTINCT restaurant_id, floor, 0
+FROM tables
+WHERE floor IS NOT NULL AND floor <> ''
+ON CONFLICT DO NOTHING;
+
+-- Ensure every restaurant has at least Piso 1
+INSERT INTO restaurant_floors (restaurant_id, name, sort_order)
+SELECT r.id, 'Piso 1', 0
+FROM restaurants r
+WHERE NOT EXISTS (SELECT 1 FROM restaurant_floors f WHERE f.restaurant_id = r.id)
+ON CONFLICT DO NOTHING;
+
+-- ============================================
+-- V8: Menu — free-layout coordinates on sections
+-- ============================================
+ALTER TABLE menu_categories ADD COLUMN IF NOT EXISTS layout_x NUMERIC;
+ALTER TABLE menu_categories ADD COLUMN IF NOT EXISTS layout_y NUMERIC;
+ALTER TABLE menu_categories ADD COLUMN IF NOT EXISTS layout_w NUMERIC;
+ALTER TABLE menu_text_blocks ADD COLUMN IF NOT EXISTS layout_x NUMERIC;
+ALTER TABLE menu_text_blocks ADD COLUMN IF NOT EXISTS layout_y NUMERIC;
+ALTER TABLE menu_text_blocks ADD COLUMN IF NOT EXISTS layout_w NUMERIC;
+
+-- ============================================
+-- V9: Team members + Invitations
+-- ============================================
+CREATE TABLE IF NOT EXISTS restaurant_members (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  restaurant_id UUID NOT NULL REFERENCES restaurants(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  name TEXT,
+  email TEXT NOT NULL,
+  role TEXT DEFAULT 'member' CHECK (role IN ('owner', 'member')),
+  permissions JSONB DEFAULT '{"menu":true,"tables":true,"orders":true,"qr":true,"settings":false}'::jsonb,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  UNIQUE (restaurant_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_restaurant_members_user ON restaurant_members(user_id);
+CREATE INDEX IF NOT EXISTS idx_restaurant_members_restaurant ON restaurant_members(restaurant_id);
+
+CREATE TABLE IF NOT EXISTS invitations (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  token TEXT UNIQUE NOT NULL,
+  restaurant_id UUID NOT NULL REFERENCES restaurants(id) ON DELETE CASCADE,
+  email TEXT NOT NULL,
+  name TEXT,
+  permissions JSONB DEFAULT '{"menu":true,"tables":true,"orders":true,"qr":true,"settings":false}'::jsonb,
+  invited_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+  expires_at TIMESTAMPTZ NOT NULL DEFAULT (now() + interval '7 days'),
+  used_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_invitations_token ON invitations(token);
+CREATE INDEX IF NOT EXISTS idx_invitations_email ON invitations(email);
+CREATE INDEX IF NOT EXISTS idx_invitations_restaurant ON invitations(restaurant_id);
+
+ALTER TABLE restaurant_members ENABLE ROW LEVEL SECURITY;
+ALTER TABLE invitations ENABLE ROW LEVEL SECURITY;
+
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'members_owner_all') THEN
+    CREATE POLICY members_owner_all ON restaurant_members FOR ALL USING (
+      restaurant_id IN (SELECT id FROM restaurants WHERE owner_id = auth.uid())
+    );
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'members_read_self') THEN
+    CREATE POLICY members_read_self ON restaurant_members FOR SELECT USING (user_id = auth.uid());
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'members_self_insert') THEN
+    CREATE POLICY members_self_insert ON restaurant_members FOR INSERT WITH CHECK (user_id = auth.uid());
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'invitations_owner_all') THEN
+    CREATE POLICY invitations_owner_all ON invitations FOR ALL USING (
+      restaurant_id IN (SELECT id FROM restaurants WHERE owner_id = auth.uid())
+    );
+  END IF;
+END $$;
+
+-- Drop legacy permissive policies from earlier V5 builds (safe if not present)
+DROP POLICY IF EXISTS invitations_public_read ON invitations;
+DROP POLICY IF EXISTS invitations_public_update ON invitations;
+
+-- Supplemental member policies so members with the right permissions can
+-- reach the main tables (owner_all_* policies still apply alongside)
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'member_read_restaurants') THEN
+    CREATE POLICY member_read_restaurants ON restaurants FOR SELECT USING (
+      id IN (SELECT restaurant_id FROM restaurant_members WHERE user_id = auth.uid())
+    );
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'member_all_menu_categories') THEN
+    CREATE POLICY member_all_menu_categories ON menu_categories FOR ALL USING (
+      restaurant_id IN (SELECT restaurant_id FROM restaurant_members WHERE user_id = auth.uid())
+    );
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'member_all_menu_items') THEN
+    CREATE POLICY member_all_menu_items ON menu_items FOR ALL USING (
+      restaurant_id IN (SELECT restaurant_id FROM restaurant_members WHERE user_id = auth.uid())
+    );
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'member_all_tables') THEN
+    CREATE POLICY member_all_tables ON tables FOR ALL USING (
+      restaurant_id IN (SELECT restaurant_id FROM restaurant_members WHERE user_id = auth.uid())
+    );
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'member_all_orders') THEN
+    CREATE POLICY member_all_orders ON orders FOR ALL USING (
+      restaurant_id IN (SELECT restaurant_id FROM restaurant_members WHERE user_id = auth.uid())
+    );
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'member_all_order_items') THEN
+    CREATE POLICY member_all_order_items ON order_items FOR ALL USING (
+      order_id IN (SELECT id FROM orders WHERE restaurant_id IN (SELECT restaurant_id FROM restaurant_members WHERE user_id = auth.uid()))
+    );
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'member_all_avatar') THEN
+    CREATE POLICY member_all_avatar ON avatar_configs FOR ALL USING (
+      restaurant_id IN (SELECT restaurant_id FROM restaurant_members WHERE user_id = auth.uid())
+    );
+  END IF;
+END $$;
 `;
 
 async function migrate() {
