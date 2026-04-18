@@ -16,14 +16,20 @@ import {
 import { useSession } from "@/hooks/use-session";
 import { useRestaurant } from "@/hooks/use-restaurant";
 import { signOut } from "@/lib/auth";
+import type { MemberPermissions } from "@/types";
 
-const navItems = [
+const navItems: {
+  href: string;
+  label: string;
+  icon: typeof LayoutDashboard;
+  permission?: keyof MemberPermissions;
+}[] = [
   { href: "/dashboard", label: "Inicio", icon: LayoutDashboard },
-  { href: "/dashboard/menu", label: "Menú", icon: UtensilsCrossed },
-  { href: "/dashboard/tables", label: "Mesas", icon: Grid3X3 },
-  { href: "/dashboard/orders", label: "Pedidos", icon: ClipboardList },
-  { href: "/dashboard/qr", label: "Códigos QR", icon: QrCode },
-  { href: "/dashboard/settings", label: "Configuración", icon: Settings },
+  { href: "/dashboard/menu", label: "Menú", icon: UtensilsCrossed, permission: "menu" },
+  { href: "/dashboard/tables", label: "Mesas", icon: Grid3X3, permission: "tables" },
+  { href: "/dashboard/orders", label: "Pedidos", icon: ClipboardList, permission: "orders" },
+  { href: "/dashboard/qr", label: "Códigos QR", icon: QrCode, permission: "qr" },
+  { href: "/dashboard/settings", label: "Configuración", icon: Settings, permission: "settings" },
 ];
 
 interface SidebarProps {
@@ -35,7 +41,13 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
   const { user } = useSession();
-  const { restaurant } = useRestaurant(user?.id);
+  const { restaurant, permissions, role } = useRestaurant(user?.id);
+
+  const visibleNavItems = navItems.filter((item) => {
+    if (!item.permission) return true;
+    if (role === "owner" || !permissions) return true;
+    return permissions[item.permission];
+  });
 
   async function handleSignOut() {
     await signOut();
@@ -93,7 +105,7 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
 
         {/* Nav */}
         <nav className="flex-1 px-3 space-y-0.5 overflow-y-auto">
-          {navItems.map((item) => {
+          {visibleNavItems.map((item) => {
             const isActive =
               pathname === item.href ||
               (item.href !== "/dashboard" && pathname.startsWith(item.href));

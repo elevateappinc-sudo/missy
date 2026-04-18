@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 export async function POST(request: Request) {
   const { token } = await request.json();
@@ -14,7 +15,18 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Debes iniciar sesión primero" }, { status: 401 });
   }
 
-  const { data: invitation } = await supabase
+  let admin;
+  try {
+    admin = createAdminClient();
+  } catch (err) {
+    console.error(err);
+    return NextResponse.json(
+      { error: "Servicio de invitaciones no configurado" },
+      { status: 500 }
+    );
+  }
+
+  const { data: invitation } = await admin
     .from("invitations")
     .select("*")
     .eq("token", token)
@@ -42,7 +54,7 @@ export async function POST(request: Request) {
     );
   }
 
-  // Create membership
+  // Create membership (user-scoped client so members_self_insert policy applies)
   const { error: memberErr } = await supabase
     .from("restaurant_members")
     .insert({
@@ -59,12 +71,13 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "No se pudo vincular al restaurante" }, { status: 500 });
   }
 
-  await supabase
+  // Mark used via admin client (public update policy no longer exists)
+  await admin
     .from("invitations")
     .update({ used_at: new Date().toISOString() })
     .eq("id", invitation.id);
 
-  const { data: restaurant } = await supabase
+  const { data: restaurant } = await admin
     .from("restaurants")
     .select("name")
     .eq("id", invitation.restaurant_id)

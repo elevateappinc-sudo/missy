@@ -112,20 +112,20 @@ export default function TablesFloorsPage() {
   }
 
   async function renameFloor(oldName: string, newName: string) {
+    if (editingFloor !== oldName) return; // Prevent double-invocation (Enter + onBlur)
     const clean = newName.trim();
-    if (!clean || clean === oldName) {
-      setEditingFloor(null);
-      return;
-    }
+    setEditingFloor(null);
+    if (!clean || clean === oldName) return;
     if (floorsMap[clean]) {
       alert("Ya existe un piso con ese nombre.");
       return;
     }
-    const toUpdate = tables.filter((t) => t.floor === oldName);
-    for (const t of toUpdate) {
-      await supabase.from("tables").update({ floor: clean }).eq("id", t.id);
-    }
-    setEditingFloor(null);
+    if (!restaurant) return;
+    await supabase
+      .from("tables")
+      .update({ floor: clean })
+      .eq("restaurant_id", restaurant.id)
+      .eq("floor", oldName);
     loadTables();
   }
 
@@ -135,9 +135,12 @@ export default function TablesFloorsPage() {
       if (!confirm(`El piso "${name}" tiene ${floorTables.length} mesa(s). Al eliminarlo también se eliminan todas sus mesas. ¿Continuar?`)) {
         return;
       }
-      for (const t of floorTables) {
-        await supabase.from("tables").delete().eq("id", t.id);
-      }
+      if (!restaurant) return;
+      await supabase
+        .from("tables")
+        .delete()
+        .eq("restaurant_id", restaurant.id)
+        .eq("floor", name);
     }
     loadTables();
   }

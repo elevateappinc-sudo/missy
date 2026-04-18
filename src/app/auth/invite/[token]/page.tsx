@@ -11,7 +11,6 @@ interface InvitationSummary {
   email: string;
   name: string | null;
   restaurant_name: string;
-  restaurant_id: string;
   expired: boolean;
   used: boolean;
   permissions: Record<string, boolean>;
@@ -36,26 +35,27 @@ export default function InvitePage({ params }: { params: Promise<{ token: string
         window.localStorage.setItem("pending_invitation_token", token);
       }
 
-      const { data } = await supabase
-        .from("invitations")
-        .select("id, email, name, permissions, expires_at, used_at, restaurant_id, restaurants(name)")
-        .eq("token", token)
-        .maybeSingle();
+      const res = await fetch("/api/invitations/lookup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token }),
+      });
 
-      if (!data) {
-        setLoadError("Invitación no encontrada o inválida.");
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({ error: "Invitación no encontrada" }));
+        setLoadError(json.error ?? "Invitación no encontrada o inválida.");
         setLoading(false);
         return;
       }
 
+      const data = await res.json();
       setInvitation({
         id: data.id,
         email: data.email,
         name: data.name,
-        restaurant_name: (data as any).restaurants?.name ?? "Restaurante",
-        restaurant_id: data.restaurant_id,
-        expired: new Date(data.expires_at) < new Date(),
-        used: !!data.used_at,
+        restaurant_name: data.restaurant_name,
+        expired: !!data.expired,
+        used: !!data.used,
         permissions: data.permissions ?? {},
       });
 

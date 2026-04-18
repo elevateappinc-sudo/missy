@@ -62,20 +62,19 @@ DO $$ BEGIN
   END IF;
 END $$;
 
--- Invitations: owners manage; public read by token for accept flow
+-- Invitations: owners manage their own. Lookup/accept uses server API with
+-- service role (bypasses RLS) so no public policies needed.
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'invitations_owner_all') THEN
     CREATE POLICY invitations_owner_all ON invitations FOR ALL USING (
       restaurant_id IN (SELECT id FROM restaurants WHERE owner_id = auth.uid())
     );
   END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'invitations_public_read') THEN
-    CREATE POLICY invitations_public_read ON invitations FOR SELECT USING (true);
-  END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'invitations_public_update') THEN
-    CREATE POLICY invitations_public_update ON invitations FOR UPDATE USING (true);
-  END IF;
 END $$;
+
+-- Drop any previously-created permissive policies from earlier V5 runs
+DROP POLICY IF EXISTS invitations_public_read ON invitations;
+DROP POLICY IF EXISTS invitations_public_update ON invitations;
 
 -- Allow authenticated users to insert themselves as a member (used by accept-invite flow)
 DO $$ BEGIN
