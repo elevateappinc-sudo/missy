@@ -317,6 +317,42 @@ DO $$ BEGIN
     CREATE POLICY public_read_menu_text_blocks ON menu_text_blocks FOR SELECT USING (is_active = true);
   END IF;
 END $$;
+
+-- ============================================
+-- V7: Restaurant floors — persist floor list independent of tables
+-- ============================================
+CREATE TABLE IF NOT EXISTS restaurant_floors (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  restaurant_id UUID NOT NULL REFERENCES restaurants(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  sort_order INT DEFAULT 0,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  UNIQUE(restaurant_id, name)
+);
+CREATE INDEX IF NOT EXISTS idx_restaurant_floors_restaurant ON restaurant_floors(restaurant_id);
+ALTER TABLE restaurant_floors ENABLE ROW LEVEL SECURITY;
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'owner_all_restaurant_floors') THEN
+    CREATE POLICY owner_all_restaurant_floors ON restaurant_floors FOR ALL USING (restaurant_id IN (SELECT id FROM restaurants WHERE owner_id = auth.uid()));
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'public_read_restaurant_floors') THEN
+    CREATE POLICY public_read_restaurant_floors ON restaurant_floors FOR SELECT USING (true);
+  END IF;
+END $$;
+
+-- Seed existing distinct floor values from tables so data isn't lost
+INSERT INTO restaurant_floors (restaurant_id, name, sort_order)
+SELECT DISTINCT restaurant_id, floor, 0
+FROM tables
+WHERE floor IS NOT NULL AND floor <> ''
+ON CONFLICT DO NOTHING;
+
+-- Ensure every restaurant has at least Piso 1
+INSERT INTO restaurant_floors (restaurant_id, name, sort_order)
+SELECT r.id, 'Piso 1', 0
+FROM restaurants r
+WHERE NOT EXISTS (SELECT 1 FROM restaurant_floors f WHERE f.restaurant_id = r.id)
+ON CONFLICT DO NOTHING;
 `;
 
 async function migrate() {
