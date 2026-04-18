@@ -132,3 +132,36 @@ export interface ConversationMessage {
   content: string;
   timestamp: string;
 }
+
+// --- Permisos y Equipo ---
+export interface MemberPermissions {
+  menu: boolean;
+  tables: boolean;
+  orders: boolean;
+  qr: boolean;
+  settings: boolean;
+}
+
+export interface RestaurantMember {
+  id: string;
+  restaurant_id: string;
+  user_id: string;
+  name: string | null;
+  email: string;
+  role: "owner" | "member";
+  permissions: MemberPermissions;
+  created_at: string;
+}
+
+export interface Invitation {
+  id: string;
+  token: string;
+  restaurant_id: string;
+  email: string;
+  name: string | null;
+  permissions: MemberPermissions;
+  invited_by: string | null;
+  expires_at: string;
+  used_at: string | null;
+  created_at: string;
+}

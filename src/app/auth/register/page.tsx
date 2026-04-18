@@ -31,7 +31,14 @@ export default function RegisterPage() {
       setError(error.message);
       setIsLoading(false);
     } else {
-      router.push("/dashboard");
+      const pendingToken = typeof window !== "undefined"
+        ? window.localStorage.getItem("pending_invitation_token")
+        : null;
+      if (pendingToken) {
+        router.push(`/auth/invite/${pendingToken}`);
+      } else {
+        router.push("/dashboard");
+      }
     }
   }
 
