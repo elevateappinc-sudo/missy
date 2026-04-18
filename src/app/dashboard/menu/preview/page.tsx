@@ -18,6 +18,7 @@ import {
   Plus,
   AlignJustify,
   Palette,
+  Move,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useSession } from "@/hooks/use-session";
@@ -38,6 +39,9 @@ interface Category {
   name: string;
   sort_order: number;
   font_scale: number;
+  layout_x: number | null;
+  layout_y: number | null;
+  layout_w: number | null;
   items: MenuItem[];
 }
 
@@ -48,6 +52,9 @@ interface TextBlock {
   content: string;
   block_type: TextBlockType;
   sort_order: number;
+  layout_x: number | null;
+  layout_y: number | null;
+  layout_w: number | null;
 }
 
 type MenuSection =
@@ -645,6 +652,18 @@ export default function MenuPreviewPage() {
   const [showImages, setShowImages] = useState(true);
   const [editMode, setEditMode] = useState(false);
   const [useBrandColors, setUseBrandColors] = useState(false);
+  const [freeMode, setFreeMode] = useState(false);
+  const freeDragRef = useRef<
+    | {
+        kind: "category" | "block";
+        id: string;
+        startX: number;
+        startY: number;
+        origX: number;
+        origY: number;
+      }
+    | null
+  >(null);
   const [fontScale, setFontScale] = useState(1);
   const [uploadTarget, setUploadTarget] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -657,14 +676,14 @@ export default function MenuPreviewPage() {
       supabase
         .from("menu_categories")
         .select(
-          "id, name, sort_order, font_scale, menu_items(id, name, description, price, image_url, is_available, is_daily_special, sort_order)"
+          "id, name, sort_order, font_scale, layout_x, layout_y, layout_w, menu_items(id, name, description, price, image_url, is_available, is_daily_special, sort_order)"
         )
         .eq("restaurant_id", restaurant.id)
         .eq("is_active", true)
         .order("sort_order"),
       supabase
         .from("menu_text_blocks")
-        .select("id, content, block_type, sort_order")
+        .select("id, content, block_type, sort_order, layout_x, layout_y, layout_w")
         .eq("restaurant_id", restaurant.id)
         .eq("is_active", true)
         .order("sort_order"),
@@ -675,13 +694,21 @@ export default function MenuPreviewPage() {
       content: string | null;
       block_type: TextBlockType | null;
       sort_order: number | null;
+      layout_x: number | string | null;
+      layout_y: number | string | null;
+      layout_w: number | string | null;
     };
+    const toNum = (v: number | string | null | undefined) =>
+      v == null ? null : typeof v === "number" ? v : Number.isFinite(Number(v)) ? Number(v) : null;
     setTextBlocks(
       ((blocksData ?? []) as unknown as RawBlock[]).map<TextBlock>((b) => ({
         id: b.id,
         content: b.content ?? "",
         block_type: (b.block_type ?? "paragraph") as TextBlockType,
         sort_order: b.sort_order ?? 0,
+        layout_x: toNum(b.layout_x),
+        layout_y: toNum(b.layout_y),
+        layout_w: toNum(b.layout_w),
       }))
     );
 
@@ -700,6 +727,9 @@ export default function MenuPreviewPage() {
       name: string;
       sort_order: number | null;
       font_scale: number | string | null;
+      layout_x: number | string | null;
+      layout_y: number | string | null;
+      layout_w: number | string | null;
       menu_items: RawItem[] | null;
     };
     setCategories(
@@ -710,6 +740,9 @@ export default function MenuPreviewPage() {
           sort_order: c.sort_order ?? 0,
           font_scale:
             c.font_scale == null ? 1 : Number(c.font_scale) || 1,
+          layout_x: toNum(c.layout_x),
+          layout_y: toNum(c.layout_y),
+          layout_w: toNum(c.layout_w),
           items: (c.menu_items ?? [])
             .filter((i) => i.is_available)
             .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
@@ -838,6 +871,62 @@ export default function MenuPreviewPage() {
     );
   }
 
+  async function saveSectionLayout(
+    kind: "category" | "block",
+    id: string,
+    x: number,
+    y: number
+  ) {
+    const table = kind === "category" ? "menu_categories" : "menu_text_blocks";
+    await supabase.from(table).update({ layout_x: x, layout_y: y }).eq("id", id);
+  }
+
+  function startFreeDrag(
+    e: React.MouseEvent,
+    kind: "category" | "block",
+    id: string,
+    origX: number,
+    origY: number
+  ) {
+    e.preventDefault();
+    e.stopPropagation();
+    freeDragRef.current = {
+      kind,
+      id,
+      startX: e.clientX,
+      startY: e.clientY,
+      origX,
+      origY,
+    };
+    const handleMove = (ev: MouseEvent) => {
+      const d = freeDragRef.current;
+      if (!d) return;
+      const nextX = Math.max(0, d.origX + ev.clientX - d.startX);
+      const nextY = Math.max(0, d.origY + ev.clientY - d.startY);
+      if (d.kind === "category") {
+        setCategories((prev) =>
+          prev.map((c) => (c.id === d.id ? { ...c, layout_x: nextX, layout_y: nextY } : c))
+        );
+      } else {
+        setTextBlocks((prev) =>
+          prev.map((b) => (b.id === d.id ? { ...b, layout_x: nextX, layout_y: nextY } : b))
+        );
+      }
+    };
+    const handleUp = (ev: MouseEvent) => {
+      const d = freeDragRef.current;
+      document.removeEventListener("mousemove", handleMove);
+      document.removeEventListener("mouseup", handleUp);
+      if (!d) return;
+      const finalX = Math.max(0, d.origX + ev.clientX - d.startX);
+      const finalY = Math.max(0, d.origY + ev.clientY - d.startY);
+      freeDragRef.current = null;
+      saveSectionLayout(d.kind, d.id, finalX, finalY);
+    };
+    document.addEventListener("mousemove", handleMove);
+    document.addEventListener("mouseup", handleUp);
+  }
+
   async function reorderSections(
     from: { kind: "category" | "block"; id: string },
     to: { kind: "category" | "block"; id: string }
@@ -908,6 +997,9 @@ export default function MenuPreviewPage() {
       content: inserted.content ?? defaultContent,
       block_type: (inserted.block_type ?? type) as TextBlockType,
       sort_order: inserted.sort_order ?? newOrder,
+      layout_x: null,
+      layout_y: null,
+      layout_w: null,
     };
     if (!needsResequence) {
       setTextBlocks((prev) => [...prev, newBlock]);
@@ -992,6 +1084,30 @@ export default function MenuPreviewPage() {
     [categories, textBlocks]
   );
 
+  // In free mode, fall back to auto-computed coords when layout_x/y are null.
+  // Default layout: single column of 550px-wide cards stacked with 420px vertical spacing,
+  // ordered by sort_order.
+  const FREE_DEFAULT_W = 550;
+  const FREE_DEFAULT_STRIDE = 420;
+  const freeCoords = useMemo(() => {
+    const map = new Map<string, { x: number; y: number; w: number }>();
+    sections.forEach((s, idx) => {
+      const x = s.data.layout_x ?? 40;
+      const y = s.data.layout_y ?? idx * FREE_DEFAULT_STRIDE;
+      const w = s.data.layout_w ?? FREE_DEFAULT_W;
+      map.set(`${s.kind}:${s.data.id}`, { x, y, w });
+    });
+    return map;
+  }, [sections]);
+
+  const canvasHeight = useMemo(() => {
+    let max = 600;
+    freeCoords.forEach(({ y }) => {
+      if (y + FREE_DEFAULT_STRIDE > max) max = y + FREE_DEFAULT_STRIDE;
+    });
+    return max;
+  }, [freeCoords]);
+
   const gridClass =
     layout === "three-col"
       ? "grid grid-cols-3 gap-4"
@@ -1050,6 +1166,14 @@ export default function MenuPreviewPage() {
               title={showImages ? "Ocultar imágenes" : "Mostrar imágenes"}
             >
               {showImages ? <ImageIcon className="w-4 h-4" /> : <ImageOff className="w-4 h-4" />}
+            </button>
+            {/* Free layout toggle */}
+            <button
+              onClick={() => setFreeMode((v) => !v)}
+              className={`p-1.5 rounded-[8px] transition-all ${freeMode ? "bg-primary/10 text-primary" : "bg-bg-warm text-text-muted"}`}
+              title={freeMode ? "Salir del modo libre" : "Posicionamiento libre (canvas)"}
+            >
+              <Move className="w-4 h-4" />
             </button>
             {/* Brand colors toggle */}
             <button
@@ -1227,25 +1351,65 @@ export default function MenuPreviewPage() {
           )}
 
           {/* Sections (categories + text blocks) */}
+          <div
+            className={freeMode ? "relative mx-auto" : ""}
+            style={
+              freeMode
+                ? {
+                    minHeight: `${canvasHeight}px`,
+                    width: `${Math.max(
+                      FREE_DEFAULT_W + 80,
+                      ...Array.from(freeCoords.values()).map((c) => c.x + c.w + 40)
+                    )}px`,
+                    maxWidth: "100%",
+                    backgroundImage: editMode
+                      ? "linear-gradient(0deg, rgba(0,0,0,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(0,0,0,0.03) 1px, transparent 1px)"
+                      : undefined,
+                    backgroundSize: editMode ? "40px 40px" : undefined,
+                  }
+                : undefined
+            }
+          >
           {sections.map((section, sectionIndex) => {
             const sectionKey = `${section.kind}:${section.data.id}`;
-            const addSlot = editMode ? (
-              <AddBlockSlot
-                key={`add-${sectionKey}`}
-                onAdd={(t) => createTextBlockAt(sectionIndex - 1, t)}
-              />
-            ) : null;
+            const addSlot =
+              editMode && !freeMode ? (
+                <AddBlockSlot
+                  key={`add-${sectionKey}`}
+                  onAdd={(t) => createTextBlockAt(sectionIndex - 1, t)}
+                />
+              ) : null;
+            const freePos = freeCoords.get(sectionKey);
+            const freeWrapStyle: CSSProperties | undefined = freeMode
+              ? {
+                  position: "absolute",
+                  left: `${freePos?.x ?? 40}px`,
+                  top: `${freePos?.y ?? 0}px`,
+                  width: `${freePos?.w ?? FREE_DEFAULT_W}px`,
+                }
+              : undefined;
             if (section.kind === "block") {
               const block = section.data;
               return (
-                <div key={sectionKey}>
+                <div key={sectionKey} style={freeWrapStyle}>
                   {addSlot}
+                  {freeMode && editMode && (
+                    <button
+                      onMouseDown={(e) =>
+                        startFreeDrag(e, "block", block.id, freePos?.x ?? 40, freePos?.y ?? 0)
+                      }
+                      className={`absolute -top-3 left-1/2 -translate-x-1/2 ${cfg.muted} bg-white rounded-full px-2 py-1 shadow-sm border border-border-light cursor-grab active:cursor-grabbing print:hidden z-10 text-[10px] flex items-center gap-1`}
+                      title="Mover (arrastrar)"
+                    >
+                      <Move className="w-3 h-3" /> Mover
+                    </button>
+                  )}
                   <div
                     onDragOver={(e) => {
-                      if (editMode && dragSection.current) e.preventDefault();
+                      if (editMode && !freeMode && dragSection.current) e.preventDefault();
                     }}
                     onDrop={(e) => {
-                      if (!editMode) return;
+                      if (!editMode || freeMode) return;
                       const d = dragSection.current;
                       if (d && !(d.kind === "block" && d.id === block.id)) {
                         e.preventDefault();
@@ -1257,7 +1421,7 @@ export default function MenuPreviewPage() {
                     <TextBlockView
                       block={block}
                       cfg={cfg}
-                      editMode={editMode}
+                      editMode={editMode && !freeMode}
                       onDragStart={() => {
                         dragSection.current = { kind: "block", id: block.id };
                       }}
@@ -1271,15 +1435,26 @@ export default function MenuPreviewPage() {
             }
             const category = section.data;
             return (
-              <div key={sectionKey}>
+              <div key={sectionKey} style={freeWrapStyle}>
                 {addSlot}
+                {freeMode && editMode && (
+                  <button
+                    onMouseDown={(e) =>
+                      startFreeDrag(e, "category", category.id, freePos?.x ?? 40, freePos?.y ?? 0)
+                    }
+                    className={`absolute -top-3 left-1/2 -translate-x-1/2 ${cfg.muted} bg-white rounded-full px-2 py-1 shadow-sm border border-border-light cursor-grab active:cursor-grabbing print:hidden z-10 text-[10px] flex items-center gap-1`}
+                    title="Mover (arrastrar)"
+                  >
+                    <Move className="w-3 h-3" /> Mover
+                  </button>
+                )}
             <section
               className={`mb-14 print:mb-8 ${editMode ? "relative rounded-[12px]" : ""}`}
               onDragOver={(e) => {
-                if (editMode && dragSection.current) e.preventDefault();
+                if (editMode && !freeMode && dragSection.current) e.preventDefault();
               }}
               onDrop={(e) => {
-                if (!editMode) return;
+                if (!editMode || freeMode) return;
                 const d = dragSection.current;
                 if (d && !(d.kind === "category" && d.id === category.id)) {
                   e.preventDefault();
@@ -1664,9 +1839,10 @@ export default function MenuPreviewPage() {
               </div>
             );
           })}
-          {editMode && (
+          {editMode && !freeMode && (
             <AddBlockSlot onAdd={(t) => createTextBlockAt(sections.length - 1, t)} />
           )}
+          </div>
 
           {/* Footer */}
           <footer className="mt-16 pt-8 text-center print:mt-8">
