@@ -353,6 +353,16 @@ SELECT r.id, 'Piso 1', 0
 FROM restaurants r
 WHERE NOT EXISTS (SELECT 1 FROM restaurant_floors f WHERE f.restaurant_id = r.id)
 ON CONFLICT DO NOTHING;
+
+-- ============================================
+-- V8: Menu — free-layout coordinates on sections
+-- ============================================
+ALTER TABLE menu_categories ADD COLUMN IF NOT EXISTS layout_x NUMERIC;
+ALTER TABLE menu_categories ADD COLUMN IF NOT EXISTS layout_y NUMERIC;
+ALTER TABLE menu_categories ADD COLUMN IF NOT EXISTS layout_w NUMERIC;
+ALTER TABLE menu_text_blocks ADD COLUMN IF NOT EXISTS layout_x NUMERIC;
+ALTER TABLE menu_text_blocks ADD COLUMN IF NOT EXISTS layout_y NUMERIC;
+ALTER TABLE menu_text_blocks ADD COLUMN IF NOT EXISTS layout_w NUMERIC;
 `;
 
 async function migrate() {
