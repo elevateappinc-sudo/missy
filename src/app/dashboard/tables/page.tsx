@@ -13,6 +13,12 @@ import type { Table, TableStatus } from "@/types";
 
 const DEFAULT_FLOORS = ["Piso 1"];
 
+interface FloorRow {
+  id: string;
+  name: string;
+  sort_order: number;
+}
+
 export default function TablesPage() {
   const supabase = createClient();
   const { user } = useSession();
@@ -21,11 +27,38 @@ export default function TablesPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [activeFloor, setActiveFloor] = useState("Piso 1");
   const [floors, setFloors] = useState<string[]>(DEFAULT_FLOORS);
+  const [floorRows, setFloorRows] = useState<FloorRow[]>([]);
   const [showFloorModal, setShowFloorModal] = useState(false);
   const [newFloorName, setNewFloorName] = useState("");
   const [editingFloor, setEditingFloor] = useState<string | null>(null);
   const [editFloorName, setEditFloorName] = useState("");
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const loadFloors = useCallback(async () => {
+    if (!restaurant) return;
+    const { data } = await supabase
+      .from("restaurant_floors")
+      .select("id, name, sort_order")
+      .eq("restaurant_id", restaurant.id)
+      .order("sort_order")
+      .order("name");
+    const rows = (data as FloorRow[] | null) ?? [];
+    if (rows.length === 0) {
+      // Bootstrap default Piso 1 for this restaurant
+      const { data: inserted } = await supabase
+        .from("restaurant_floors")
+        .insert({ restaurant_id: restaurant.id, name: "Piso 1", sort_order: 0 })
+        .select("id, name, sort_order")
+        .single();
+      if (inserted) {
+        setFloorRows([inserted as FloorRow]);
+        setFloors([inserted.name]);
+      }
+      return;
+    }
+    setFloorRows(rows);
+    setFloors(rows.map((r) => r.name));
+  }, [restaurant, supabase]);
 
   const loadTables = useCallback(async () => {
     if (!restaurant) return;
@@ -39,20 +72,19 @@ export default function TablesPage() {
       floor: t.floor || "Piso 1",
     }));
     setTables(loaded);
-
-    // Derive floors from existing tables
-    const uniqueFloors = Array.from(new Set(loaded.map((t) => t.floor)));
-    if (uniqueFloors.length > 0) {
-      setFloors(uniqueFloors.sort());
-      if (!uniqueFloors.includes(activeFloor)) {
-        setActiveFloor(uniqueFloors[0]);
-      }
-    }
-  }, [restaurant, supabase, activeFloor]);
+  }, [restaurant, supabase]);
 
   useEffect(() => {
+    loadFloors();
     loadTables();
-  }, [loadTables]);
+  }, [loadFloors, loadTables]);
+
+  // Ensure activeFloor stays valid when floors change
+  useEffect(() => {
+    if (floors.length > 0 && !floors.includes(activeFloor)) {
+      setActiveFloor(floors[0]);
+    }
+  }, [floors, activeFloor]);
 
   // Realtime subscription
   useEffect(() => {
@@ -130,27 +162,59 @@ export default function TablesPage() {
   }
 
   // Floor management
-  function addFloor(name: string) {
-    if (!name.trim() || floors.includes(name.trim())) return;
-    const updated = [...floors, name.trim()].sort();
-    setFloors(updated);
-    setActiveFloor(name.trim());
+  async function addFloor(name: string) {
+    const trimmed = name.trim();
+    if (!restaurant || !trimmed || floors.includes(trimmed)) return;
+    const nextOrder = Math.max(0, ...floorRows.map((r) => r.sort_order)) + 1;
+    const { data: inserted, error } = await supabase
+      .from("restaurant_floors")
+      .insert({ restaurant_id: restaurant.id, name: trimmed, sort_order: nextOrder })
+      .select("id, name, sort_order")
+      .single();
+    if (error || !inserted) {
+      console.error("Error creating floor:", error);
+      alert(`Error al crear piso: ${error?.message ?? "desconocido"}`);
+      return;
+    }
+    const row = inserted as FloorRow;
+    setFloorRows((prev) => [...prev, row]);
+    setFloors((prev) => [...prev, row.name]);
+    setActiveFloor(row.name);
     setNewFloorName("");
     setShowFloorModal(false);
   }
 
   async function renameFloor(oldName: string, newName: string) {
-    if (!newName.trim() || newName.trim() === oldName) {
+    const trimmed = newName.trim();
+    if (!trimmed || trimmed === oldName) {
       setEditingFloor(null);
       return;
+    }
+    if (floors.includes(trimmed)) {
+      alert("Ya existe un piso con ese nombre.");
+      setEditingFloor(null);
+      return;
+    }
+    const row = floorRows.find((r) => r.name === oldName);
+    if (row) {
+      const { error } = await supabase
+        .from("restaurant_floors")
+        .update({ name: trimmed })
+        .eq("id", row.id);
+      if (error) {
+        console.error("Error renaming floor:", error);
+        alert(`Error al renombrar piso: ${error.message}`);
+        return;
+      }
+      setFloorRows((prev) => prev.map((r) => (r.id === row.id ? { ...r, name: trimmed } : r)));
     }
     // Update all tables on this floor
     const tablesToUpdate = tables.filter((t) => t.floor === oldName);
     for (const t of tablesToUpdate) {
-      await supabase.from("tables").update({ floor: newName.trim() }).eq("id", t.id);
+      await supabase.from("tables").update({ floor: trimmed }).eq("id", t.id);
     }
-    setFloors((prev) => prev.map((f) => (f === oldName ? newName.trim() : f)).sort());
-    if (activeFloor === oldName) setActiveFloor(newName.trim());
+    setFloors((prev) => prev.map((f) => (f === oldName ? trimmed : f)));
+    if (activeFloor === oldName) setActiveFloor(trimmed);
     setEditingFloor(null);
     loadTables();
   }
@@ -161,8 +225,22 @@ export default function TablesPage() {
       alert("No puedes eliminar un piso que tiene mesas. Elimina o mueve las mesas primero.");
       return;
     }
+    if (floors.length <= 1) {
+      alert("Debe existir al menos un piso.");
+      return;
+    }
+    const row = floorRows.find((r) => r.name === name);
+    if (row) {
+      const { error } = await supabase.from("restaurant_floors").delete().eq("id", row.id);
+      if (error) {
+        console.error("Error deleting floor:", error);
+        alert(`Error al eliminar piso: ${error.message}`);
+        return;
+      }
+      setFloorRows((prev) => prev.filter((r) => r.id !== row.id));
+    }
     setFloors((prev) => prev.filter((f) => f !== name));
-    if (activeFloor === name && floors.length > 1) {
+    if (activeFloor === name) {
       setActiveFloor(floors.find((f) => f !== name) ?? "Piso 1");
     }
   }
