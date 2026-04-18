@@ -8,6 +8,8 @@ import { Plus, Layers, Pencil, Trash2, ChevronRight, Users, X } from "lucide-rea
 import { createClient } from "@/lib/supabase/client";
 import { useSession } from "@/hooks/use-session";
 import { useRestaurant } from "@/hooks/use-restaurant";
+import { getNextTableNumber } from "@/lib/tables";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import type { Table, TableStatus } from "@/types";
 
 interface FloorSummary {
@@ -31,6 +33,8 @@ export default function TablesFloorsPage() {
   const [creating, setCreating] = useState(false);
   const [editingFloor, setEditingFloor] = useState<string | null>(null);
   const [editFloorName, setEditFloorName] = useState("");
+  const [floorToDelete, setFloorToDelete] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const loadTables = useCallback(async () => {
     if (!restaurant) return;
@@ -86,9 +90,10 @@ export default function TablesFloorsPage() {
     }
     setCreating(true);
     const isBar = clean.toLowerCase().includes("barra");
+    const nextNumber = getNextTableNumber(tables, isBar ? "Barra" : "Mesa");
     const qrCode = `${restaurant.id}-mesa-${Date.now()}-${crypto.randomUUID().slice(0, 6)}`;
     const { error } = await supabase.from("tables").insert({
-      name: isBar ? "Barra 1" : "Mesa 1",
+      name: `${isBar ? "Barra" : "Mesa"} ${nextNumber}`,
       restaurant_id: restaurant.id,
       qr_code: qrCode,
       position_x: 100,
@@ -129,21 +134,22 @@ export default function TablesFloorsPage() {
     loadTables();
   }
 
-  async function deleteFloor(name: string) {
-    const floorTables = tables.filter((t) => t.floor === name);
-    if (floorTables.length > 0) {
-      if (!confirm(`El piso "${name}" tiene ${floorTables.length} mesa(s). Al eliminarlo también se eliminan todas sus mesas. ¿Continuar?`)) {
-        return;
-      }
-      if (!restaurant) return;
-      await supabase
-        .from("tables")
-        .delete()
-        .eq("restaurant_id", restaurant.id)
-        .eq("floor", name);
-    }
+  async function confirmDeleteFloor() {
+    if (!floorToDelete || !restaurant) return;
+    setDeleting(true);
+    await supabase
+      .from("tables")
+      .delete()
+      .eq("restaurant_id", restaurant.id)
+      .eq("floor", floorToDelete);
+    setDeleting(false);
+    setFloorToDelete(null);
     loadTables();
   }
+
+  const floorToDeleteCount = floorToDelete
+    ? tables.filter((t) => t.floor === floorToDelete).length
+    : 0;
 
   return (
     <>
@@ -253,7 +259,7 @@ export default function TablesFloorsPage() {
                   <button
                     onClick={(e) => {
                       e.preventDefault();
-                      deleteFloor(floor.name);
+                      setFloorToDelete(floor.name);
                     }}
                     className="w-7 h-7 rounded-[6px] flex items-center justify-center text-text-muted hover:text-error hover:bg-error/8 transition-all"
                     aria-label="Eliminar piso"
@@ -322,6 +328,21 @@ export default function TablesFloorsPage() {
           </div>
         </div>
       )}
+
+      <ConfirmDialog
+        open={!!floorToDelete}
+        variant="danger"
+        title={`Eliminar "${floorToDelete}"`}
+        description={
+          floorToDeleteCount > 0
+            ? `Este piso tiene ${floorToDeleteCount} ${floorToDeleteCount === 1 ? "mesa" : "mesas"}. Al continuar se eliminarán todas. Esta acción no se puede deshacer.`
+            : "Esta acción no se puede deshacer."
+        }
+        confirmLabel="Eliminar piso"
+        loading={deleting}
+        onConfirm={confirmDeleteFloor}
+        onCancel={() => setFloorToDelete(null)}
+      />
     </>
   );
 }

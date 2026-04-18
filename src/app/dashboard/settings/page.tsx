@@ -6,6 +6,7 @@ import { Bot, Store, Volume2, Save, Check, Users, Mail, UserPlus, Copy, X, Trash
 import { createClient } from "@/lib/supabase/client";
 import { useSession } from "@/hooks/use-session";
 import { useRestaurant } from "@/hooks/use-restaurant";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import type { MemberPermissions } from "@/types";
 
 const styles = [
@@ -381,6 +382,9 @@ function TeamTab({ restaurantId, isOwner }: { restaurantId: string; isOwner: boo
   const [invitations, setInvitations] = useState<PendingInvitation[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
+  const [invitationToRevoke, setInvitationToRevoke] = useState<PendingInvitation | null>(null);
+  const [memberToRemove, setMemberToRemove] = useState<TeamMember | null>(null);
+  const [actionLoading, setActionLoading] = useState(false);
 
   const load = useCallback(async () => {
     const [{ data: m }, { data: i }] = await Promise.all([
@@ -403,15 +407,21 @@ function TeamTab({ restaurantId, isOwner }: { restaurantId: string; isOwner: boo
 
   useEffect(() => { load(); }, [load]);
 
-  async function revokeInvitation(id: string) {
-    if (!confirm("¿Revocar esta invitación?")) return;
-    await supabase.from("invitations").delete().eq("id", id);
+  async function confirmRevokeInvitation() {
+    if (!invitationToRevoke) return;
+    setActionLoading(true);
+    await supabase.from("invitations").delete().eq("id", invitationToRevoke.id);
+    setActionLoading(false);
+    setInvitationToRevoke(null);
     load();
   }
 
-  async function removeMember(id: string) {
-    if (!confirm("¿Quitar a este miembro del equipo?")) return;
-    await supabase.from("restaurant_members").delete().eq("id", id);
+  async function confirmRemoveMember() {
+    if (!memberToRemove) return;
+    setActionLoading(true);
+    await supabase.from("restaurant_members").delete().eq("id", memberToRemove.id);
+    setActionLoading(false);
+    setMemberToRemove(null);
     load();
   }
 
@@ -484,7 +494,7 @@ function TeamTab({ restaurantId, isOwner }: { restaurantId: string; isOwner: boo
                       </span>
                       {m.role !== "owner" && (
                         <button
-                          onClick={() => removeMember(m.id)}
+                          onClick={() => setMemberToRemove(m)}
                           className="w-8 h-8 rounded-[6px] flex items-center justify-center text-text-muted hover:text-error hover:bg-error/8 transition-all"
                           aria-label="Quitar miembro"
                         >
@@ -507,7 +517,7 @@ function TeamTab({ restaurantId, isOwner }: { restaurantId: string; isOwner: boo
               </div>
               <ul className="divide-y divide-border-light">
                 {invitations.map((inv) => (
-                  <InvitationRow key={inv.id} invitation={inv} onRevoke={() => revokeInvitation(inv.id)} />
+                  <InvitationRow key={inv.id} invitation={inv} onRevoke={() => setInvitationToRevoke(inv)} />
                 ))}
               </ul>
             </div>
@@ -524,6 +534,36 @@ function TeamTab({ restaurantId, isOwner }: { restaurantId: string; isOwner: boo
           }}
         />
       )}
+
+      <ConfirmDialog
+        open={!!invitationToRevoke}
+        variant="danger"
+        title="Revocar invitación"
+        description={
+          invitationToRevoke
+            ? `El enlace enviado a ${invitationToRevoke.email} dejará de funcionar.`
+            : ""
+        }
+        confirmLabel="Revocar"
+        loading={actionLoading}
+        onConfirm={confirmRevokeInvitation}
+        onCancel={() => setInvitationToRevoke(null)}
+      />
+
+      <ConfirmDialog
+        open={!!memberToRemove}
+        variant="danger"
+        title="Quitar miembro del equipo"
+        description={
+          memberToRemove
+            ? `${memberToRemove.name || memberToRemove.email} perderá acceso al restaurante inmediatamente.`
+            : ""
+        }
+        confirmLabel="Quitar miembro"
+        loading={actionLoading}
+        onConfirm={confirmRemoveMember}
+        onCancel={() => setMemberToRemove(null)}
+      />
     </div>
   );
 }

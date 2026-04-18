@@ -11,6 +11,7 @@ import { Plus, ArrowLeft } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useSession } from "@/hooks/use-session";
 import { useRestaurant } from "@/hooks/use-restaurant";
+import { getNextTableNumber } from "@/lib/tables";
 import type { Table, TableStatus } from "@/types";
 
 export default function FloorPage({ params }: { params: Promise<{ floor: string }> }) {
@@ -61,14 +62,13 @@ export default function FloorPage({ params }: { params: Promise<{ floor: string 
   async function addTable() {
     if (!restaurant) return;
     const floorTables = tables.filter((t) => t.floor === floorName);
-    const total = tables.length + 1;
     const isBar = floorName.toLowerCase().includes("barra");
-    const qrCode = `${restaurant.id}-mesa-${total}-${crypto.randomUUID().slice(0, 8)}`;
+    const nextNumber = getNextTableNumber(tables, isBar ? "Barra" : "Mesa");
+    const qrCode = `${restaurant.id}-mesa-${nextNumber}-${crypto.randomUUID().slice(0, 8)}`;
     const posX = 100 + ((floorTables.length) % 5) * 140;
     const posY = 100 + Math.floor((floorTables.length) / 5) * 140;
-    const nextNumber = floorTables.length + 1;
     const { error } = await supabase.from("tables").insert({
-      name: isBar ? `Barra ${nextNumber}` : `Mesa ${total}`,
+      name: `${isBar ? "Barra" : "Mesa"} ${nextNumber}`,
       restaurant_id: restaurant.id,
       qr_code: qrCode,
       position_x: posX,
