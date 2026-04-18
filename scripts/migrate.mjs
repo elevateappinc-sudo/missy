@@ -294,6 +294,29 @@ END $$;
 -- V5: Menu — per-category font scale
 -- ============================================
 ALTER TABLE menu_categories ADD COLUMN IF NOT EXISTS font_scale NUMERIC(3,2) DEFAULT 1.0;
+
+-- ============================================
+-- V6: Menu text blocks — headings/paragraphs/footers between categories
+-- ============================================
+CREATE TABLE IF NOT EXISTS menu_text_blocks (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  restaurant_id UUID NOT NULL REFERENCES restaurants(id) ON DELETE CASCADE,
+  content TEXT NOT NULL DEFAULT '',
+  block_type TEXT NOT NULL DEFAULT 'paragraph' CHECK (block_type IN ('heading','paragraph','footer')),
+  sort_order INT DEFAULT 0,
+  is_active BOOLEAN DEFAULT true,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_menu_text_blocks_restaurant ON menu_text_blocks(restaurant_id);
+ALTER TABLE menu_text_blocks ENABLE ROW LEVEL SECURITY;
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'owner_all_menu_text_blocks') THEN
+    CREATE POLICY owner_all_menu_text_blocks ON menu_text_blocks FOR ALL USING (restaurant_id IN (SELECT id FROM restaurants WHERE owner_id = auth.uid()));
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'public_read_menu_text_blocks') THEN
+    CREATE POLICY public_read_menu_text_blocks ON menu_text_blocks FOR SELECT USING (is_active = true);
+  END IF;
+END $$;
 `;
 
 async function migrate() {
