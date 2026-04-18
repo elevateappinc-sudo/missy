@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef, type CSSProperties } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef, type CSSProperties } from "react";
 import {
   ArrowLeft,
   Printer,
@@ -513,6 +513,7 @@ function TextBlockView({
   block,
   cfg,
   editMode,
+  onDragStart,
   onContent,
   onType,
   onDelete,
@@ -520,6 +521,7 @@ function TextBlockView({
   block: TextBlock;
   cfg: StyleCfg;
   editMode: boolean;
+  onDragStart?: () => void;
   onContent: (v: string) => void;
   onType: (t: TextBlockType) => void;
   onDelete: () => void;
@@ -532,6 +534,19 @@ function TextBlockView({
       : `mb-10 print:mb-6 text-[14px] leading-relaxed text-center max-w-2xl mx-auto ${cfg.muted}`;
   return (
     <div className={`relative group ${editMode ? "rounded-[10px] p-2 hover:bg-black/[0.03]" : ""}`}>
+      {editMode && (
+        <span
+          draggable
+          onDragStart={(e) => {
+            onDragStart?.();
+            e.dataTransfer.effectAllowed = "move";
+          }}
+          className={`absolute left-1 top-1/2 -translate-y-1/2 ${cfg.muted} bg-white/90 rounded-md p-1 shadow-sm cursor-grab active:cursor-grabbing print:hidden opacity-0 group-hover:opacity-100 transition-opacity`}
+          title="Arrastra para reordenar"
+        >
+          <GripVertical className="w-3.5 h-3.5" />
+        </span>
+      )}
       <Editable
         as="p"
         value={block.content}
@@ -569,7 +584,7 @@ function TextBlockView({
 function AddBlockSlot({ onAdd }: { onAdd: (type: TextBlockType) => void }) {
   const [open, setOpen] = useState(false);
   return (
-    <div className="relative flex justify-center py-1 print:hidden group">
+    <div className="relative flex justify-center py-1 print:hidden">
       {open ? (
         <div className="flex gap-1 bg-white shadow-md rounded-full border border-border-light p-1 z-10">
           <button
@@ -602,6 +617,7 @@ function AddBlockSlot({ onAdd }: { onAdd: (type: TextBlockType) => void }) {
           <button
             onClick={() => setOpen(false)}
             className="text-[11px] px-2 py-1 rounded-full hover:bg-bg-warm text-text-muted"
+            aria-label="Cerrar"
           >
             ×
           </button>
@@ -609,7 +625,7 @@ function AddBlockSlot({ onAdd }: { onAdd: (type: TextBlockType) => void }) {
       ) : (
         <button
           onClick={() => setOpen(true)}
-          className="text-[11px] text-text-muted hover:text-primary px-3 py-1 rounded-full border border-dashed border-border-light hover:border-primary/40 bg-white/50 opacity-0 group-hover:opacity-100 transition-opacity"
+          className="text-[11px] text-text-muted hover:text-primary px-3 py-1 rounded-full border border-dashed border-border-light hover:border-primary/40 bg-white/60 transition-colors"
         >
           + Añadir texto
         </button>
@@ -633,7 +649,7 @@ export default function MenuPreviewPage() {
   const [uploadTarget, setUploadTarget] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const dragItem = useRef<{ categoryId: string; itemId: string } | null>(null);
-  const dragCategory = useRef<string | null>(null);
+  const dragSection = useRef<{ kind: "category" | "block"; id: string } | null>(null);
 
   const loadMenu = useCallback(async () => {
     if (!restaurant) return;
@@ -822,20 +838,38 @@ export default function MenuPreviewPage() {
     );
   }
 
-  async function reorderCategories(fromId: string, toId: string) {
-    if (fromId === toId) return;
-    const fromIdx = categories.findIndex((c) => c.id === fromId);
-    const toIdx = categories.findIndex((c) => c.id === toId);
+  async function reorderSections(
+    from: { kind: "category" | "block"; id: string },
+    to: { kind: "category" | "block"; id: string }
+  ) {
+    if (from.kind === to.kind && from.id === to.id) return;
+    const merged = [
+      ...categories.map((c) => ({ kind: "category" as const, id: c.id, sort_order: c.sort_order })),
+      ...textBlocks.map((b) => ({ kind: "block" as const, id: b.id, sort_order: b.sort_order })),
+    ].sort((a, b) => a.sort_order - b.sort_order);
+    const fromIdx = merged.findIndex((s) => s.kind === from.kind && s.id === from.id);
+    const toIdx = merged.findIndex((s) => s.kind === to.kind && s.id === to.id);
     if (fromIdx < 0 || toIdx < 0) return;
-    const next = [...categories];
-    const [moved] = next.splice(fromIdx, 1);
-    next.splice(toIdx, 0, moved);
-    const withOrder = next.map((c, idx) => ({ ...c, sort_order: idx }));
-    setCategories(withOrder);
+    const reordered = [...merged];
+    const [moved] = reordered.splice(fromIdx, 1);
+    reordered.splice(toIdx, 0, moved);
+    const orderMap = new Map<string, number>();
+    reordered.forEach((s, idx) => orderMap.set(`${s.kind}:${s.id}`, idx));
+
+    setCategories((prev) =>
+      prev.map((c) => ({ ...c, sort_order: orderMap.get(`category:${c.id}`) ?? c.sort_order }))
+    );
+    setTextBlocks((prev) =>
+      prev.map((b) => ({ ...b, sort_order: orderMap.get(`block:${b.id}`) ?? b.sort_order }))
+    );
+
     await Promise.all(
-      withOrder.map((c) =>
-        supabase.from("menu_categories").update({ sort_order: c.sort_order }).eq("id", c.id)
-      )
+      reordered.map((s) => {
+        const next = orderMap.get(`${s.kind}:${s.id}`) ?? 0;
+        return s.kind === "category"
+          ? supabase.from("menu_categories").update({ sort_order: next }).eq("id", s.id)
+          : supabase.from("menu_text_blocks").update({ sort_order: next }).eq("id", s.id);
+      })
     );
   }
 
@@ -875,68 +909,42 @@ export default function MenuPreviewPage() {
       block_type: (inserted.block_type ?? type) as TextBlockType,
       sort_order: inserted.sort_order ?? newOrder,
     };
-    setTextBlocks((prev) => [...prev, newBlock]);
-
-    if (needsResequence) {
-      const merged = [
-        ...categories.map((c) => ({ kind: "category" as const, id: c.id })),
-        ...textBlocks.map((b) => ({ kind: "block" as const, id: b.id })),
-        { kind: "block" as const, id: newBlock.id },
-      ];
-      const sortedIds = new Map<string, number>();
-      const working = [
-        ...categories.map((c) => ({
-          kind: "category" as const,
-          id: c.id,
-          sort_order: c.sort_order,
-        })),
-        ...textBlocks.map((b) => ({
-          kind: "block" as const,
-          id: b.id,
-          sort_order: b.sort_order,
-        })),
-      ].sort((a, b) => a.sort_order - b.sort_order);
-      const insertionIndex = afterIndex + 1;
-      const rebuilt = [
-        ...working.slice(0, insertionIndex),
-        { kind: "block" as const, id: newBlock.id, sort_order: 0 },
-        ...working.slice(insertionIndex),
-      ];
-      rebuilt.forEach((s, idx) => sortedIds.set(`${s.kind}:${s.id}`, idx));
-
-      setCategories((prev) =>
-        prev.map((c) => ({ ...c, sort_order: sortedIds.get(`category:${c.id}`) ?? c.sort_order }))
-      );
-      setTextBlocks((prev) =>
-        prev.map((b) => ({ ...b, sort_order: sortedIds.get(`block:${b.id}`) ?? b.sort_order }))
-      );
-      // also update the new block's sort_order in state (it was just inserted above)
-      const newOrderFinal = sortedIds.get(`block:${newBlock.id}`) ?? newBlock.sort_order;
-      setTextBlocks((prev) =>
-        prev.map((b) =>
-          b.id === newBlock.id ? { ...b, sort_order: newOrderFinal } : b
-        )
-      );
-
-      await Promise.all([
-        ...merged
-          .filter((m) => m.kind === "category")
-          .map((m) =>
-            supabase
-              .from("menu_categories")
-              .update({ sort_order: sortedIds.get(`category:${m.id}`) ?? 0 })
-              .eq("id", m.id)
-          ),
-        ...merged
-          .filter((m) => m.kind === "block")
-          .map((m) =>
-            supabase
-              .from("menu_text_blocks")
-              .update({ sort_order: sortedIds.get(`block:${m.id}`) ?? 0 })
-              .eq("id", m.id)
-          ),
-      ]);
+    if (!needsResequence) {
+      setTextBlocks((prev) => [...prev, newBlock]);
+      return;
     }
+
+    // Resequence everything: build unified order with the new block at
+    // insertionIndex, then flush to state + DB in one pass.
+    const working = [
+      ...categories.map((c) => ({ kind: "category" as const, id: c.id, sort_order: c.sort_order })),
+      ...textBlocks.map((b) => ({ kind: "block" as const, id: b.id, sort_order: b.sort_order })),
+    ].sort((a, b) => a.sort_order - b.sort_order);
+    const insertionIndex = afterIndex + 1;
+    const rebuilt = [
+      ...working.slice(0, insertionIndex),
+      { kind: "block" as const, id: newBlock.id, sort_order: 0 },
+      ...working.slice(insertionIndex),
+    ];
+    const orderMap = new Map<string, number>();
+    rebuilt.forEach((s, idx) => orderMap.set(`${s.kind}:${s.id}`, idx));
+
+    setCategories((prev) =>
+      prev.map((c) => ({ ...c, sort_order: orderMap.get(`category:${c.id}`) ?? c.sort_order }))
+    );
+    setTextBlocks((prev) => [
+      ...prev.map((b) => ({ ...b, sort_order: orderMap.get(`block:${b.id}`) ?? b.sort_order })),
+      { ...newBlock, sort_order: orderMap.get(`block:${newBlock.id}`) ?? newBlock.sort_order },
+    ]);
+
+    await Promise.all(
+      rebuilt.map((s) => {
+        const next = orderMap.get(`${s.kind}:${s.id}`) ?? 0;
+        return s.kind === "category"
+          ? supabase.from("menu_categories").update({ sort_order: next }).eq("id", s.id)
+          : supabase.from("menu_text_blocks").update({ sort_order: next }).eq("id", s.id);
+      })
+    );
   }
 
   async function saveTextBlockContent(blockId: string, content: string) {
@@ -967,18 +975,22 @@ export default function MenuPreviewPage() {
     : null;
   const specials = categories.flatMap((c) => c.items.filter((i) => i.is_daily_special));
 
-  const sections: MenuSection[] = [
-    ...categories.map<MenuSection>((c) => ({
-      kind: "category",
-      data: c,
-      sort_order: c.sort_order,
-    })),
-    ...textBlocks.map<MenuSection>((b) => ({
-      kind: "block",
-      data: b,
-      sort_order: b.sort_order,
-    })),
-  ].sort((a, b) => a.sort_order - b.sort_order);
+  const sections = useMemo<MenuSection[]>(
+    () =>
+      [
+        ...categories.map<MenuSection>((c) => ({
+          kind: "category",
+          data: c,
+          sort_order: c.sort_order,
+        })),
+        ...textBlocks.map<MenuSection>((b) => ({
+          kind: "block",
+          data: b,
+          sort_order: b.sort_order,
+        })),
+      ].sort((a, b) => a.sort_order - b.sort_order),
+    [categories, textBlocks]
+  );
 
   const gridClass =
     layout === "three-col"
@@ -1228,14 +1240,32 @@ export default function MenuPreviewPage() {
               return (
                 <div key={sectionKey}>
                   {addSlot}
-                  <TextBlockView
-                    block={block}
-                    cfg={cfg}
-                    editMode={editMode}
-                    onContent={(v) => saveTextBlockContent(block.id, v)}
-                    onType={(t) => saveTextBlockType(block.id, t)}
-                    onDelete={() => deleteTextBlock(block.id)}
-                  />
+                  <div
+                    onDragOver={(e) => {
+                      if (editMode && dragSection.current) e.preventDefault();
+                    }}
+                    onDrop={(e) => {
+                      if (!editMode) return;
+                      const d = dragSection.current;
+                      if (d && !(d.kind === "block" && d.id === block.id)) {
+                        e.preventDefault();
+                        reorderSections(d, { kind: "block", id: block.id });
+                      }
+                      dragSection.current = null;
+                    }}
+                  >
+                    <TextBlockView
+                      block={block}
+                      cfg={cfg}
+                      editMode={editMode}
+                      onDragStart={() => {
+                        dragSection.current = { kind: "block", id: block.id };
+                      }}
+                      onContent={(v) => saveTextBlockContent(block.id, v)}
+                      onType={(t) => saveTextBlockType(block.id, t)}
+                      onDelete={() => deleteTextBlock(block.id)}
+                    />
+                  </div>
                 </div>
               );
             }
@@ -1246,15 +1276,16 @@ export default function MenuPreviewPage() {
             <section
               className={`mb-14 print:mb-8 ${editMode ? "relative rounded-[12px]" : ""}`}
               onDragOver={(e) => {
-                if (editMode && dragCategory.current) e.preventDefault();
+                if (editMode && dragSection.current) e.preventDefault();
               }}
               onDrop={(e) => {
                 if (!editMode) return;
-                if (dragCategory.current && dragCategory.current !== category.id) {
+                const d = dragSection.current;
+                if (d && !(d.kind === "category" && d.id === category.id)) {
                   e.preventDefault();
-                  reorderCategories(dragCategory.current, category.id);
+                  reorderSections(d, { kind: "category", id: category.id });
                 }
-                dragCategory.current = null;
+                dragSection.current = null;
               }}
             >
               {/* Category title */}
@@ -1264,7 +1295,7 @@ export default function MenuPreviewPage() {
                     <span
                       draggable
                       onDragStart={(e) => {
-                        dragCategory.current = category.id;
+                        dragSection.current = { kind: "category", id: category.id };
                         e.dataTransfer.effectAllowed = "move";
                       }}
                       className={`absolute left-0 top-1/2 -translate-y-1/2 ${cfg.muted} bg-white/90 rounded-md p-1 shadow-sm opacity-90 cursor-grab active:cursor-grabbing print:hidden`}
