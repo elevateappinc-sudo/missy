@@ -41,6 +41,19 @@ interface Category {
   items: MenuItem[];
 }
 
+type TextBlockType = "heading" | "paragraph" | "footer";
+
+interface TextBlock {
+  id: string;
+  content: string;
+  block_type: TextBlockType;
+  sort_order: number;
+}
+
+type MenuSection =
+  | { kind: "category"; data: Category; sort_order: number }
+  | { kind: "block"; data: TextBlock; sort_order: number };
+
 type MenuStyle =
   | "elegant"
   | "classic"
@@ -494,11 +507,123 @@ function Editable({
   );
 }
 
+type StyleCfg = (typeof STYLE_CONFIG)[keyof typeof STYLE_CONFIG];
+
+function TextBlockView({
+  block,
+  cfg,
+  editMode,
+  onContent,
+  onType,
+  onDelete,
+}: {
+  block: TextBlock;
+  cfg: StyleCfg;
+  editMode: boolean;
+  onContent: (v: string) => void;
+  onType: (t: TextBlockType) => void;
+  onDelete: () => void;
+}) {
+  const baseClass =
+    block.block_type === "heading"
+      ? `text-center mb-10 print:mb-6 text-[26px] font-semibold tracking-[0.08em] uppercase ${cfg.accent}`
+      : block.block_type === "footer"
+      ? `text-center mb-10 print:mb-6 text-[11px] tracking-[0.2em] uppercase ${cfg.muted} opacity-70`
+      : `mb-10 print:mb-6 text-[14px] leading-relaxed text-center max-w-2xl mx-auto ${cfg.muted}`;
+  return (
+    <div className={`relative group ${editMode ? "rounded-[10px] p-2 hover:bg-black/[0.03]" : ""}`}>
+      <Editable
+        as="p"
+        value={block.content}
+        editable={editMode}
+        multiline={block.block_type !== "heading"}
+        placeholder={editMode ? "Escribe el texto…" : ""}
+        onSave={onContent}
+        className={baseClass}
+      />
+      {editMode && (
+        <div className="absolute top-1 right-1 flex gap-1 bg-white/90 rounded-md p-0.5 shadow-sm print:hidden opacity-0 group-hover:opacity-100 transition-opacity">
+          <select
+            value={block.block_type}
+            onChange={(e) => onType(e.target.value as TextBlockType)}
+            className="text-[10px] bg-transparent text-text-secondary rounded px-1 py-0.5 focus:outline-none"
+            title="Tipo de bloque"
+          >
+            <option value="heading">Título</option>
+            <option value="paragraph">Párrafo</option>
+            <option value="footer">Pie</option>
+          </select>
+          <button
+            onClick={onDelete}
+            className="p-1 rounded text-error hover:bg-error/10"
+            title="Eliminar bloque"
+          >
+            <XIcon className="w-3 h-3" />
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AddBlockSlot({ onAdd }: { onAdd: (type: TextBlockType) => void }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="relative flex justify-center py-1 print:hidden group">
+      {open ? (
+        <div className="flex gap-1 bg-white shadow-md rounded-full border border-border-light p-1 z-10">
+          <button
+            onClick={() => {
+              onAdd("heading");
+              setOpen(false);
+            }}
+            className="text-[11px] px-3 py-1 rounded-full hover:bg-bg-warm"
+          >
+            + Título
+          </button>
+          <button
+            onClick={() => {
+              onAdd("paragraph");
+              setOpen(false);
+            }}
+            className="text-[11px] px-3 py-1 rounded-full hover:bg-bg-warm"
+          >
+            + Párrafo
+          </button>
+          <button
+            onClick={() => {
+              onAdd("footer");
+              setOpen(false);
+            }}
+            className="text-[11px] px-3 py-1 rounded-full hover:bg-bg-warm"
+          >
+            + Pie
+          </button>
+          <button
+            onClick={() => setOpen(false)}
+            className="text-[11px] px-2 py-1 rounded-full hover:bg-bg-warm text-text-muted"
+          >
+            ×
+          </button>
+        </div>
+      ) : (
+        <button
+          onClick={() => setOpen(true)}
+          className="text-[11px] text-text-muted hover:text-primary px-3 py-1 rounded-full border border-dashed border-border-light hover:border-primary/40 bg-white/50 opacity-0 group-hover:opacity-100 transition-opacity"
+        >
+          + Añadir texto
+        </button>
+      )}
+    </div>
+  );
+}
+
 export default function MenuPreviewPage() {
   const supabase = createClient();
   const { user } = useSession();
   const { restaurant } = useRestaurant(user?.id);
   const [categories, setCategories] = useState<Category[]>([]);
+  const [textBlocks, setTextBlocks] = useState<TextBlock[]>([]);
   const [style, setStyle] = useState<MenuStyle>("elegant");
   const [layout, setLayout] = useState<LayoutMode>("single");
   const [showImages, setShowImages] = useState(true);
@@ -512,14 +637,37 @@ export default function MenuPreviewPage() {
 
   const loadMenu = useCallback(async () => {
     if (!restaurant) return;
-    const { data } = await supabase
-      .from("menu_categories")
-      .select(
-        "id, name, sort_order, font_scale, menu_items(id, name, description, price, image_url, is_available, is_daily_special, sort_order)"
-      )
-      .eq("restaurant_id", restaurant.id)
-      .eq("is_active", true)
-      .order("sort_order");
+    const [{ data }, { data: blocksData }] = await Promise.all([
+      supabase
+        .from("menu_categories")
+        .select(
+          "id, name, sort_order, font_scale, menu_items(id, name, description, price, image_url, is_available, is_daily_special, sort_order)"
+        )
+        .eq("restaurant_id", restaurant.id)
+        .eq("is_active", true)
+        .order("sort_order"),
+      supabase
+        .from("menu_text_blocks")
+        .select("id, content, block_type, sort_order")
+        .eq("restaurant_id", restaurant.id)
+        .eq("is_active", true)
+        .order("sort_order"),
+    ]);
+
+    type RawBlock = {
+      id: string;
+      content: string | null;
+      block_type: TextBlockType | null;
+      sort_order: number | null;
+    };
+    setTextBlocks(
+      ((blocksData ?? []) as unknown as RawBlock[]).map<TextBlock>((b) => ({
+        id: b.id,
+        content: b.content ?? "",
+        block_type: (b.block_type ?? "paragraph") as TextBlockType,
+        sort_order: b.sort_order ?? 0,
+      }))
+    );
 
     type RawItem = {
       id: string;
@@ -691,6 +839,124 @@ export default function MenuPreviewPage() {
     );
   }
 
+  async function createTextBlockAt(afterIndex: number, type: TextBlockType) {
+    if (!restaurant) return;
+    const allSorted = [
+      ...categories.map((c) => ({ kind: "category" as const, id: c.id, sort_order: c.sort_order })),
+      ...textBlocks.map((b) => ({ kind: "block" as const, id: b.id, sort_order: b.sort_order })),
+    ].sort((a, b) => a.sort_order - b.sort_order);
+    const before = allSorted[afterIndex];
+    const beforeOrder = before ? before.sort_order : -1;
+    const afterOrder = allSorted[afterIndex + 1]?.sort_order ?? beforeOrder + 2;
+    const gap = afterOrder - beforeOrder;
+    const newOrder = gap > 1 ? beforeOrder + Math.floor(gap / 2) : beforeOrder + 1;
+    const needsResequence = gap <= 1;
+
+    const defaultContent =
+      type === "heading"
+        ? "Nueva sección"
+        : type === "footer"
+        ? "Notas finales"
+        : "Escribe un párrafo…";
+    const { data: inserted } = await supabase
+      .from("menu_text_blocks")
+      .insert({
+        restaurant_id: restaurant.id,
+        content: defaultContent,
+        block_type: type,
+        sort_order: newOrder,
+      })
+      .select("id, content, block_type, sort_order")
+      .single();
+    if (!inserted) return;
+    const newBlock: TextBlock = {
+      id: inserted.id,
+      content: inserted.content ?? defaultContent,
+      block_type: (inserted.block_type ?? type) as TextBlockType,
+      sort_order: inserted.sort_order ?? newOrder,
+    };
+    setTextBlocks((prev) => [...prev, newBlock]);
+
+    if (needsResequence) {
+      const merged = [
+        ...categories.map((c) => ({ kind: "category" as const, id: c.id })),
+        ...textBlocks.map((b) => ({ kind: "block" as const, id: b.id })),
+        { kind: "block" as const, id: newBlock.id },
+      ];
+      const sortedIds = new Map<string, number>();
+      const working = [
+        ...categories.map((c) => ({
+          kind: "category" as const,
+          id: c.id,
+          sort_order: c.sort_order,
+        })),
+        ...textBlocks.map((b) => ({
+          kind: "block" as const,
+          id: b.id,
+          sort_order: b.sort_order,
+        })),
+      ].sort((a, b) => a.sort_order - b.sort_order);
+      const insertionIndex = afterIndex + 1;
+      const rebuilt = [
+        ...working.slice(0, insertionIndex),
+        { kind: "block" as const, id: newBlock.id, sort_order: 0 },
+        ...working.slice(insertionIndex),
+      ];
+      rebuilt.forEach((s, idx) => sortedIds.set(`${s.kind}:${s.id}`, idx));
+
+      setCategories((prev) =>
+        prev.map((c) => ({ ...c, sort_order: sortedIds.get(`category:${c.id}`) ?? c.sort_order }))
+      );
+      setTextBlocks((prev) =>
+        prev.map((b) => ({ ...b, sort_order: sortedIds.get(`block:${b.id}`) ?? b.sort_order }))
+      );
+      // also update the new block's sort_order in state (it was just inserted above)
+      const newOrderFinal = sortedIds.get(`block:${newBlock.id}`) ?? newBlock.sort_order;
+      setTextBlocks((prev) =>
+        prev.map((b) =>
+          b.id === newBlock.id ? { ...b, sort_order: newOrderFinal } : b
+        )
+      );
+
+      await Promise.all([
+        ...merged
+          .filter((m) => m.kind === "category")
+          .map((m) =>
+            supabase
+              .from("menu_categories")
+              .update({ sort_order: sortedIds.get(`category:${m.id}`) ?? 0 })
+              .eq("id", m.id)
+          ),
+        ...merged
+          .filter((m) => m.kind === "block")
+          .map((m) =>
+            supabase
+              .from("menu_text_blocks")
+              .update({ sort_order: sortedIds.get(`block:${m.id}`) ?? 0 })
+              .eq("id", m.id)
+          ),
+      ]);
+    }
+  }
+
+  async function saveTextBlockContent(blockId: string, content: string) {
+    const next = content.trim();
+    setTextBlocks((prev) => prev.map((b) => (b.id === blockId ? { ...b, content: next } : b)));
+    await supabase.from("menu_text_blocks").update({ content: next }).eq("id", blockId);
+  }
+
+  async function saveTextBlockType(blockId: string, type: TextBlockType) {
+    setTextBlocks((prev) =>
+      prev.map((b) => (b.id === blockId ? { ...b, block_type: type } : b))
+    );
+    await supabase.from("menu_text_blocks").update({ block_type: type }).eq("id", blockId);
+  }
+
+  async function deleteTextBlock(blockId: string) {
+    setTextBlocks((prev) => prev.filter((b) => b.id !== blockId));
+    await supabase.from("menu_text_blocks").update({ is_active: false }).eq("id", blockId);
+  }
+
   const baseCfg = STYLE_CONFIG[style];
   const cfg = useBrandColors ? withBrandColors(baseCfg) : baseCfg;
   const cssVars = useBrandColors
@@ -700,6 +966,19 @@ export default function MenuPreviewPage() {
       )
     : null;
   const specials = categories.flatMap((c) => c.items.filter((i) => i.is_daily_special));
+
+  const sections: MenuSection[] = [
+    ...categories.map<MenuSection>((c) => ({
+      kind: "category",
+      data: c,
+      sort_order: c.sort_order,
+    })),
+    ...textBlocks.map<MenuSection>((b) => ({
+      kind: "block",
+      data: b,
+      sort_order: b.sort_order,
+    })),
+  ].sort((a, b) => a.sort_order - b.sort_order);
 
   const gridClass =
     layout === "three-col"
@@ -935,10 +1214,36 @@ export default function MenuPreviewPage() {
             </section>
           )}
 
-          {/* Categories */}
-          {categories.map((category) => (
+          {/* Sections (categories + text blocks) */}
+          {sections.map((section, sectionIndex) => {
+            const sectionKey = `${section.kind}:${section.data.id}`;
+            const addSlot = editMode ? (
+              <AddBlockSlot
+                key={`add-${sectionKey}`}
+                onAdd={(t) => createTextBlockAt(sectionIndex - 1, t)}
+              />
+            ) : null;
+            if (section.kind === "block") {
+              const block = section.data;
+              return (
+                <div key={sectionKey}>
+                  {addSlot}
+                  <TextBlockView
+                    block={block}
+                    cfg={cfg}
+                    editMode={editMode}
+                    onContent={(v) => saveTextBlockContent(block.id, v)}
+                    onType={(t) => saveTextBlockType(block.id, t)}
+                    onDelete={() => deleteTextBlock(block.id)}
+                  />
+                </div>
+              );
+            }
+            const category = section.data;
+            return (
+              <div key={sectionKey}>
+                {addSlot}
             <section
-              key={category.id}
               className={`mb-14 print:mb-8 ${editMode ? "relative rounded-[12px]" : ""}`}
               onDragOver={(e) => {
                 if (editMode && dragCategory.current) e.preventDefault();
@@ -1325,7 +1630,12 @@ export default function MenuPreviewPage() {
               )}
               </div>
             </section>
-          ))}
+              </div>
+            );
+          })}
+          {editMode && (
+            <AddBlockSlot onAdd={(t) => createTextBlockAt(sections.length - 1, t)} />
+          )}
 
           {/* Footer */}
           <footer className="mt-16 pt-8 text-center print:mt-8">
