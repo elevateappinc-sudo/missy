@@ -1,8 +1,10 @@
 "use client";
 
+import { useState } from "react";
 import { X, Trash2 } from "lucide-react";
 import type { Table, TableShape, TableStatus } from "@/types";
 import { statusColors } from "./table-node";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 
 interface TablePanelProps {
   table: Table;
@@ -19,6 +21,7 @@ const shapes: { value: TableShape; label: string }[] = [
 ];
 
 export function TablePanel({ table, floors, onUpdate, onDelete, onClose }: TablePanelProps) {
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   return (
     <div className="absolute right-0 top-0 bottom-0 w-[300px] bg-white border-l border-border-light p-6 overflow-y-auto z-10 shadow-xl">
       <div className="flex items-center justify-between mb-6">
@@ -135,15 +138,26 @@ export function TablePanel({ table, floors, onUpdate, onDelete, onClose }: Table
 
         {/* Delete */}
         <button
-          onClick={() => {
-            if (confirm("¿Eliminar esta mesa?")) onDelete(table.id);
-          }}
+          onClick={() => setShowDeleteConfirm(true)}
           className="w-full flex items-center justify-center gap-2 py-2.5 rounded-full text-[13px] font-medium text-error border border-error/20 hover:bg-error/5 transition-all mt-4"
         >
           <Trash2 className="w-4 h-4" />
           Eliminar mesa
         </button>
       </div>
+
+      <ConfirmDialog
+        open={showDeleteConfirm}
+        variant="danger"
+        title={`Eliminar ${table.name}`}
+        description="Esta mesa se eliminará permanentemente junto con su código QR. Esta acción no se puede deshacer."
+        confirmLabel="Eliminar mesa"
+        onConfirm={() => {
+          setShowDeleteConfirm(false);
+          onDelete(table.id);
+        }}
+        onCancel={() => setShowDeleteConfirm(false)}
+      />
     </div>
   );
 }
