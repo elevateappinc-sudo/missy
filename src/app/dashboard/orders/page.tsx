@@ -119,7 +119,11 @@ export default function OrdersPage() {
   const [loading, setLoading] = useState(true);
 
   const loadOrders = useCallback(async () => {
-    if (!restaurant) return;
+    if (!restaurant) {
+      setOrders([]);
+      setLoading(false);
+      return;
+    }
 
     const { data, error } = await supabase
       .from("orders")

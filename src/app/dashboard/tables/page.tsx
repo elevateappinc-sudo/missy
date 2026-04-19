@@ -7,8 +7,7 @@ import { DashboardHeader } from "@/components/layout/dashboard-header";
 import { Plus, Layers, Pencil, Trash2, ChevronRight, Users, X } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useSession } from "@/hooks/use-session";
-import { useRestaurant } from "@/hooks/use-restaurant";
-import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { useRestaurant } from "@/hooks/use-restaurant";import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import type { Table, TableStatus } from "@/types";
 
 interface FloorRow {
@@ -30,7 +29,7 @@ export default function TablesFloorsPage() {
   const supabase = createClient();
   const router = useRouter();
   const { user } = useSession();
-  const { restaurant } = useRestaurant(user?.id);
+  const { restaurant, loading: restaurantLoading } = useRestaurant(user?.id);
   const [tables, setTables] = useState<Table[]>([]);
   const [floorRows, setFloorRows] = useState<FloorRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -43,7 +42,10 @@ export default function TablesFloorsPage() {
   const [deleting, setDeleting] = useState(false);
 
   const loadFloors = useCallback(async () => {
-    if (!restaurant) return;
+    if (!restaurant) {
+      setFloorRows([]);
+      return;
+    }
     const { data } = await supabase
       .from("restaurant_floors")
       .select("id, name, sort_order")
@@ -64,7 +66,11 @@ export default function TablesFloorsPage() {
   }, [restaurant, supabase]);
 
   const loadTables = useCallback(async () => {
-    if (!restaurant) return;
+    if (!restaurant) {
+      setTables([]);
+      setLoading(false);
+      return;
+    }
     const { data } = await supabase
       .from("tables")
       .select("*")
@@ -215,9 +221,21 @@ export default function TablesFloorsPage() {
         </button>
       </div>
 
-      {loading ? (
+      {restaurantLoading || loading ? (
         <div className="flex items-center justify-center py-16">
           <div className="w-6 h-6 border-2 border-primary/20 border-t-primary rounded-full animate-spin" />
+        </div>
+      ) : !restaurant ? (
+        <div className="bg-white rounded-[16px] border border-border-light py-12 sm:py-16 px-6 text-center">
+          <div className="w-14 h-14 rounded-full bg-warning/15 flex items-center justify-center mx-auto mb-4">
+            <Layers className="w-6 h-6 text-warning" />
+          </div>
+          <h3 className="text-[16px] font-semibold text-text-primary mb-1">
+            No encontramos tu restaurante
+          </h3>
+          <p className="text-[13px] text-text-secondary max-w-sm mx-auto">
+            Esta cuenta no está vinculada a ningún restaurante. Puede que hayas iniciado sesión con un correo distinto al que usaste para registrarte, o que tu invitación no se haya aceptado. Vuelve a iniciar sesión con el correo correcto.
+          </p>
         </div>
       ) : floors.length === 0 ? (
         <div className="bg-white rounded-[16px] border border-border-light py-12 sm:py-16 px-6 text-center">
