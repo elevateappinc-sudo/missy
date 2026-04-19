@@ -461,6 +461,94 @@ DO $$ BEGIN
     );
   END IF;
 END $$;
+
+-- ============================================
+-- V10: Fix RLS infinite recursion between restaurants and restaurant_members
+--   The V9 member_read_restaurants + members_owner_all policies cross-referenced
+--   each other, producing "infinite recursion detected in policy" on every
+--   SELECT. SECURITY DEFINER helper functions break the cycle.
+-- ============================================
+DROP POLICY IF EXISTS members_owner_all ON restaurant_members;
+DROP POLICY IF EXISTS member_read_restaurants ON restaurants;
+DROP POLICY IF EXISTS member_all_menu_categories ON menu_categories;
+DROP POLICY IF EXISTS member_all_menu_items ON menu_items;
+DROP POLICY IF EXISTS member_all_tables ON tables;
+DROP POLICY IF EXISTS member_all_orders ON orders;
+DROP POLICY IF EXISTS member_all_order_items ON order_items;
+DROP POLICY IF EXISTS member_all_avatar ON avatar_configs;
+
+CREATE OR REPLACE FUNCTION public.user_owns_restaurant(r_id UUID)
+RETURNS BOOLEAN
+LANGUAGE sql
+SECURITY DEFINER
+STABLE
+AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM public.restaurants
+    WHERE id = r_id AND owner_id = auth.uid()
+  );
+$$;
+
+CREATE OR REPLACE FUNCTION public.user_is_member_of(r_id UUID)
+RETURNS BOOLEAN
+LANGUAGE sql
+SECURITY DEFINER
+STABLE
+AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM public.restaurant_members
+    WHERE restaurant_id = r_id AND user_id = auth.uid()
+  );
+$$;
+
+CREATE OR REPLACE FUNCTION public.user_restaurant_ids()
+RETURNS TABLE(restaurant_id UUID)
+LANGUAGE sql
+SECURITY DEFINER
+STABLE
+AS $$
+  SELECT r.id FROM public.restaurants r WHERE r.owner_id = auth.uid()
+  UNION
+  SELECT m.restaurant_id FROM public.restaurant_members m WHERE m.user_id = auth.uid();
+$$;
+
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'members_owner_all') THEN
+    CREATE POLICY members_owner_all ON restaurant_members FOR ALL
+      USING (public.user_owns_restaurant(restaurant_id));
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'member_read_restaurants') THEN
+    CREATE POLICY member_read_restaurants ON restaurants FOR SELECT
+      USING (public.user_is_member_of(id));
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'member_all_menu_categories') THEN
+    CREATE POLICY member_all_menu_categories ON menu_categories FOR ALL
+      USING (restaurant_id IN (SELECT restaurant_id FROM public.user_restaurant_ids()));
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'member_all_menu_items') THEN
+    CREATE POLICY member_all_menu_items ON menu_items FOR ALL
+      USING (restaurant_id IN (SELECT restaurant_id FROM public.user_restaurant_ids()));
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'member_all_tables') THEN
+    CREATE POLICY member_all_tables ON tables FOR ALL
+      USING (restaurant_id IN (SELECT restaurant_id FROM public.user_restaurant_ids()));
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'member_all_orders') THEN
+    CREATE POLICY member_all_orders ON orders FOR ALL
+      USING (restaurant_id IN (SELECT restaurant_id FROM public.user_restaurant_ids()));
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'member_all_order_items') THEN
+    CREATE POLICY member_all_order_items ON order_items FOR ALL
+      USING (order_id IN (
+        SELECT id FROM public.orders
+        WHERE restaurant_id IN (SELECT restaurant_id FROM public.user_restaurant_ids())
+      ));
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'member_all_avatar') THEN
+    CREATE POLICY member_all_avatar ON avatar_configs FOR ALL
+      USING (restaurant_id IN (SELECT restaurant_id FROM public.user_restaurant_ids()));
+  END IF;
+END $$;
 `;
 
 async function migrate() {
