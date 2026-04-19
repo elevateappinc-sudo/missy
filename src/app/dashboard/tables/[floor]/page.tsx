@@ -145,7 +145,7 @@ export default function FloorPage({ params }: { params: Promise<{ floor: string 
     <>
       <DashboardHeader title={floorName} subtitle="Mapa interactivo del piso" />
 
-      <div className="flex items-center gap-2 mb-4">
+      <div className="flex items-center gap-2 mb-4 flex-wrap">
         <Link
           href="/dashboard/tables"
           className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[12px] font-medium text-text-secondary bg-white border border-border-light hover:border-primary/30 hover:text-primary transition-all"
@@ -153,8 +153,28 @@ export default function FloorPage({ params }: { params: Promise<{ floor: string 
           <ArrowLeft className="w-3.5 h-3.5" />
           Pisos
         </Link>
-        <span className="text-text-muted">/</span>
-        <span className="text-[13px] font-semibold text-text-primary">{floorName}</span>
+        {floors.length > 1 && (
+          <>
+            <span className="text-text-muted">·</span>
+            {floors.map((f) => {
+              const isActive = f === floorName;
+              return (
+                <Link
+                  key={f}
+                  href={`/dashboard/tables/${encodeURIComponent(f)}`}
+                  className={`inline-flex items-center px-3 py-1.5 rounded-full text-[12px] font-medium whitespace-nowrap transition-all ${
+                    isActive
+                      ? "bg-primary text-white shadow-sm"
+                      : "bg-white border border-border-light text-text-secondary hover:border-primary/30 hover:text-primary"
+                  }`}
+                  aria-current={isActive ? "page" : undefined}
+                >
+                  {f}
+                </Link>
+              );
+            })}
+          </>
+        )}
       </div>
 
       {/* Toolbar */}
