@@ -91,6 +91,40 @@ export default async function DebugMenuPage() {
     },
   });
 
+  // EXACT preview query — includes layout_x/y/w and font_scale
+  const { data: previewCats, error: previewErr } = await supabase
+    .from("menu_categories")
+    .select(
+      "id, name, sort_order, font_scale, layout_x, layout_y, layout_w, menu_items(id, name, description, price, image_url, is_available, is_daily_special, sort_order)"
+    )
+    .eq("restaurant_id", rid)
+    .eq("is_active", true)
+    .order("sort_order");
+  sections.push({
+    title: "RLS — EXACT preview query (font_scale, layout_*)",
+    value: {
+      error: previewErr?.message ?? null,
+      code: (previewErr as unknown as { code?: string } | null)?.code ?? null,
+      details: (previewErr as unknown as { details?: string } | null)?.details ?? null,
+      hint: (previewErr as unknown as { hint?: string } | null)?.hint ?? null,
+      count: previewCats?.length ?? 0,
+    },
+  });
+
+  const { data: previewBlocks, error: previewBlocksErr } = await supabase
+    .from("menu_text_blocks")
+    .select("id, content, block_type, sort_order, layout_x, layout_y, layout_w")
+    .eq("restaurant_id", rid)
+    .eq("is_active", true);
+  sections.push({
+    title: "RLS — EXACT preview query for text_blocks",
+    value: {
+      error: previewBlocksErr?.message ?? null,
+      code: (previewBlocksErr as unknown as { code?: string } | null)?.code ?? null,
+      count: previewBlocks?.length ?? 0,
+    },
+  });
+
   // --- Admin (ground truth) ---
   const { data: adminCats } = await admin
     .from("menu_categories")
