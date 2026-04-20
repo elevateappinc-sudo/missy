@@ -666,13 +666,15 @@ export default function MenuPreviewPage() {
   >(null);
   const [fontScale, setFontScale] = useState(1);
   const [uploadTarget, setUploadTarget] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const dragItem = useRef<{ categoryId: string; itemId: string } | null>(null);
   const dragSection = useRef<{ kind: "category" | "block"; id: string } | null>(null);
 
   const loadMenu = useCallback(async () => {
     if (!restaurant) return;
-    const [{ data }, { data: blocksData }] = await Promise.all([
+    setLoadError(null);
+    const [catsRes, blocksRes] = await Promise.all([
       supabase
         .from("menu_categories")
         .select(
@@ -688,6 +690,17 @@ export default function MenuPreviewPage() {
         .eq("is_active", true)
         .order("sort_order"),
     ]);
+
+    const firstError = catsRes.error ?? blocksRes.error;
+    if (firstError) {
+      console.error("[menu preview] load error:", firstError);
+      setLoadError(firstError.message);
+      setCategories([]);
+      setTextBlocks([]);
+      return;
+    }
+    const data = catsRes.data;
+    const blocksData = blocksRes.data;
 
     type RawBlock = {
       id: string;
@@ -1260,6 +1273,12 @@ export default function MenuPreviewPage() {
           e.target.value = "";
         }}
       />
+
+      {loadError && (
+        <div className="print:hidden bg-error/10 border-b border-error/30 px-6 py-3 text-[13px] text-error">
+          <strong>No se pudo cargar el menú:</strong> {loadError}
+        </div>
+      )}
 
       {/* Menu preview */}
       <div
