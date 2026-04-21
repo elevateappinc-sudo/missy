@@ -23,6 +23,7 @@ import {
 import { createClient } from "@/lib/supabase/client";
 import { useSession } from "@/hooks/use-session";
 import { useRestaurant } from "@/hooks/use-restaurant";
+import { StyleLayout, type LayoutStyle } from "@/components/menu-preview/style-layouts";
 
 interface MenuItem {
   id: string;
@@ -1548,7 +1549,13 @@ export default function MenuPreviewPage() {
               <div style={category.font_scale !== 1 ? { zoom: category.font_scale } : undefined}>
 
               {/* Items */}
-              {layout === "lista" ? (
+              {!editMode ? (
+                <StyleLayout
+                  style={style as LayoutStyle}
+                  items={category.items}
+                  ctx={{ showImages, categoryName: category.name }}
+                />
+              ) : layout === "lista" ? (
                 <div className="columns-2 gap-10 [column-rule:1px_solid] [column-rule-color:currentColor]/10">
                   {category.items.map((item) => (
                     <div
